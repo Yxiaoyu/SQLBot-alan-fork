@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 
 from fastapi import Body
 from pydantic import BaseModel
@@ -9,6 +9,7 @@ from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import SQLModel, Field
 
+from apps.template.data_transfer.generator import get_data_transfer_template
 from apps.db.constant import DB
 from apps.template.filter.generator import get_permissions_template
 from apps.template.generate_analysis.generator import get_analysis_template
@@ -40,6 +41,7 @@ class OperationEnum(Enum):
     GENERATE_SQL_WITH_PERMISSIONS = '5'
     CHOOSE_DATASOURCE = '6'
     GENERATE_DYNAMIC_SQL = '7'
+    SQL_RESULT_TRANSFER = '8'
 
 
 class ChatFinishStep(Enum):
@@ -253,6 +255,14 @@ class AiModelQuestion(BaseModel):
 
     def dynamic_user_question(self):
         return get_dynamic_template()['user'].format(sql=self.sql, sub_query=self.sub_query)
+
+    def data_transfer_sys_question(self):
+        return get_data_transfer_template()['system']
+
+    def data_transfer_user_question(self, sql_query: str, sql_result: Any, evidence: str):
+        return get_data_transfer_template()['user'].format(db_schema=self.db_schema, sql_query=sql_query,
+                                                 sql_result=sql_result, evidence=evidence)
+
 
 
 class ChatQuestion(AiModelQuestion):

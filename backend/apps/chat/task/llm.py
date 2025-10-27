@@ -148,27 +148,6 @@ class LLMService:
         else:
             self.chat_question.error_msg = ''
 
-    @staticmethod
-    def _format_terminologies_for_evidence(xml_string: str) -> str:
-        """
-        将术语的XML字符串转换为'key=value,key2=value'格式的字符串。
-        """
-        if not xml_string or xml_string.strip() == '':
-            return ""
-
-        try:
-            root = ET.fromstring(xml_string)
-            evidence_parts = []
-            for terminology in root.findall('terminology'):
-                description = terminology.find('description').text
-                words = [word.text for word in terminology.find('words').findall('word')]
-                for word in words:
-                    if word and description:
-                        evidence_parts.append(f"{word}={description}")
-            return "，".join(evidence_parts)
-        except ET.ParseError:
-            # 如果解析失败，返回原始字符串，因为外部服务可能需要它或记录日志
-            return xml_string
 
     @classmethod
     async def create(cls, *args, **kwargs):
@@ -225,6 +204,11 @@ class LLMService:
                 elif last_chart_message.get('type') == 'ai':
                     _msg = AIMessage(content=last_chart_message.get('content'))
                     self.chart_message.append(_msg)
+
+        self.data_transfer_message = []
+        # add sys prompt
+        self.data_transfer_message.append(SystemMessage(content=self.chat_question.data_transfer_sys_question()))
+
 
     def init_record(self, session: Session) -> ChatRecord:
         self.record = save_question(session=session, current_user=self.current_user, question=self.chat_question)
@@ -874,6 +858,74 @@ class LLMService:
     def save_error(self, session: Session, message: str):
         return save_error_message(session=session, record_id=self.record.id, message=message)
 
+    def transfer_sql_data(self, sql_result: Dict[str, Any], sql_query: str):
+        if not sql_result or not sql_result["data"]:
+            SQLBotLogUtil.warning(
+                f"Calling transfer_sql_data without sql result")
+            return sql_result
+
+        evidence_parts = []
+        # 优化：只为可能包含枚举值的列查找术语
+        data_sample = sql_result["data"][0] if sql_result["data"] else {}
+        for field_name in sql_result.get("fields", []):
+            # 简单判断：如果示例值是数字，则认为可能是枚举，值得去查术语库
+            if isinstance(data_sample.get(field_name), (int, float)):
+                ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
+                terminology_by_field_name = get_terminology_template(self.session, field_name,
+                                                                        self.current_user.oid, ds_id)
+                if terminology_by_field_name:
+                    evidence_by_field_name = DataTransfer.format_terminologies_for_evidence(terminology_by_field_name)
+                    if evidence_by_field_name:
+                        evidence_parts.append(evidence_by_field_name)
+
+        self.data_transfer_message.append(HumanMessage(
+            self.chat_question.data_transfer_user_question(sql_query=sql_query,
+                                                             sql_result=sql_result["data"],
+                                                             evidence=",".join(filter(None, evidence_parts)))))
+
+        self.current_logs[OperationEnum.SQL_RESULT_TRANSFER] = start_log(session=self.session,
+                                                                  ai_modal_id=self.chat_question.ai_modal_id,
+                                                                  ai_modal_name=self.chat_question.ai_modal_name,
+                                                                  operate=OperationEnum.SQL_RESULT_TRANSFER,
+                                                                  record_id=self.record.id,
+                                                                  full_message=[
+                                                                      {'type': msg.type, 'content': msg.content} for msg
+                                                                      in self.data_transfer_message],
+                                                                  )
+        full_thinking_text = ''
+        full_data_transfer_text = ''
+        token_usage = {}
+
+
+        res = process_stream(self.llm.stream(self.data_transfer_message), token_usage)
+        for chunk in res:
+            if chunk.get('content'):
+                full_data_transfer_text += chunk.get('content')
+            if chunk.get('reasoning_content'):
+                full_thinking_text += chunk.get('reasoning_content')
+
+        if full_data_transfer_text:
+            try:
+                # 增强健壮性，防止JSON解析失败
+                parsed_data = orjson.loads(full_data_transfer_text)
+                sql_result["data"] = parsed_data
+            except orjson.JSONDecodeError:
+                SQLBotLogUtil.error(f"Failed to parse data transfer result as JSON: {full_data_transfer_text}")
+                # 解析失败，保持原始数据不变
+
+        self.data_transfer_message.append(AIMessage(full_data_transfer_text))
+
+        self.current_logs[OperationEnum.SQL_RESULT_TRANSFER] = end_log(session=self.session,
+                                                                log=self.current_logs[OperationEnum.SQL_RESULT_TRANSFER],
+                                                                full_message=[{'type': msg.type, 'content': msg.content}
+                                                                              for msg in self.data_transfer_message],
+                                                                reasoning_content=full_thinking_text,
+                                                                token_usage=token_usage)
+        self.record = save_sql_answer(session=self.session, record_id=self.record.id,
+                                      answer=orjson.dumps({'content': full_data_transfer_text}).decode())
+
+        return sql_result
+
     def save_sql_data(self, session: Session, data_obj: Dict[str, Any]):
         try:
             data_result = data_obj.get('data')
@@ -1103,6 +1155,7 @@ class LLMService:
                 return
 
             result = self.execute_sql(sql=real_execute_sql)
+            result = self.transfer_sql_data(sql_result=result, sql_query=real_execute_sql)
             self.save_sql_data(session=_session, data_obj=result)
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': 'execute-success', 'type': 'sql-data'}).decode() + '\n\n'
