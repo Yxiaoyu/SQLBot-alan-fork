@@ -858,7 +858,7 @@ class LLMService:
     def save_error(self, session: Session, message: str):
         return save_error_message(session=session, record_id=self.record.id, message=message)
 
-    def transfer_sql_data(self,session: Session, sql_result: Dict[str, Any], sql_query: str):
+        def transfer_sql_data(self,session: Session, sql_result: Dict[str, Any], sql_query: str):
         if not sql_result or not sql_result["data"]:
             SQLBotLogUtil.warning(
                 f"Calling transfer_sql_data without sql result")
@@ -909,6 +909,8 @@ class LLMService:
             SQLBotLogUtil.info(f"Data transfer result: {full_data_transfer_text}")
             if full_data_transfer_text:
                 try:
+                    if "```json" in full_data_transfer_text:
+                        full_data_transfer_text = full_data_transfer_text.split("```json")[1].split("```")[0]
                     # 增强健壮性，防止JSON解析失败
                     parsed_data = orjson.loads(full_data_transfer_text)
                     sql_result["data"] = parsed_data
