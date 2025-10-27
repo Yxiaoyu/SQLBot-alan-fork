@@ -82,7 +82,7 @@ const handleQuestion = async (id: string) => {
   const item = datasourceListWithSearch.value.find((ele) => ele.id === id)
   const externalDatasourceValid = await datasourceApi.check_external_datasource(item)
   if (!externalDatasourceValid) {
-    ElMessage.error('数据源校验失败')
+    ElMessage.error('数据源初始化中，请稍后再试')
     return
   }
 
