@@ -1,0 +1,57 @@
+when:
+  - branch: [main,uat,test,dev,prod,ci-tmp]
+    event: [push,manual]
+clone:
+  git:
+    image: repo.seres.cn/woodpeckerci/plugin-git
+    settings:
+      depth: 1
+      lfs: true
+      skip-verify: true
+      recursive: false
+steps:
+  - name: package-fe
+    image:  repo.seres.cn/node:20.19.5
+    environment:
+      CI_TYPE: npm
+      REPO_SERES_CN_NPMTOKEN:
+        from_secret: repo_seres_cn_npmtoken
+      #NPM_TOKEN:
+      #  from_secret: repo_seres_cn_npmtoken
+      ERDP_FE_GIT_TOKEN:
+        from_secret: erdp_fe_git_token
+    commands:
+      - cd frontend
+      - pwd;ls
+      - export NODE_OPTIONS=--max-old-space-size=6000
+      - npm config set registry https://repo.seres.cn/nexus/repository/npm-erdp/
+      - npm install || npm install --force
+      - npm config set //repo.seres.cn/nexus/repository/npm-erdp-host/:_auth=$${REPO_SERES_CN_NPMTOKEN}
+      - npm run build
+      - ls
+    volumes:
+      - ${CI_WORKSPACE}/:/home/jenkins
+      - /data/cicd-cache/.npm:/root/.npm
+      - /data/cicd-cache/.local/share/pnpm:/root/.local/share/pnpm
+      - /data/cicd-cache/.yarn:/root/.yarn
+  - name: build-image
+    image: repo.seres.cn/woodpeckerci/plugin-kaniko
+    privileged: true
+    settings:
+      repo: szyy-${CI_COMMIT_BRANCH}/${CI_REPO_NAME}
+      registry: hb.seres.cn
+      dockerfile: Dockerfile-erdp
+      tags: ${CI_COMMIT_SHA}
+      username:
+        from_secret: hb_user
+      password:
+        from_secret: hb_passwd
+  - name: deploy
+    image: hb.seres.cn/ci-base/erdp-alpine:3.21.3
+    environment:
+      KUBECTL_KEY:
+        from_secret: kubectl_key
+    commands:
+      - curl -s --max-time 10 "https://ad-erdp.seres.cn/ops/api/kubectl/setimage?key=$${KUBECTL_KEY}&git_branch=${CI_COMMIT_BRANCH}&pipeline=${CI_REPO_NAME}&image=hb.seres.cn/szyy-${CI_COMMIT_BRANCH}/${CI_REPO_NAME}:${CI_COMMIT_SHA}" > curl_setimage.log 2>&1
+      - cat curl_setimage.log
+      - grep -q "success" curl_setimage.log

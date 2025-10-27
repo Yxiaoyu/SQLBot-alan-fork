@@ -1,0 +1,23 @@
+FROM repo.seres.cn/dataease/sqlbot:v1.2.0
+
+ENV EXTERNAL_SQL_GENERATION_SERVICE_URL=http://erdp-ai-nlp2sql.erdp:8000/erdp-nl2sql
+ENV EXTERNAL_SQL_GENERATION_SERVICE_TIME_OUT=300
+ENV EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV=test
+
+ENV PROJECT_NAME="SQLBot"
+ENV BACKEND_CORS_ORIGINS="http://localhost,http://localhost:5173,https://localhost,https://localhost:5173"
+ENV SECRET_KEY=y5txe1mRmS_JpOrUzFzHEu-kIQn3lf7ll0AOv9DQh0s
+ENV CACHE_TYPE="memory"
+ENV LOCAL_MODEL_PATH=${SQLBOT_HOME}/models
+
+COPY models/* /opt/sqlbot/models/
+COPY g2-ssr /opt/sqlbot/g2-ssr
+COPY start.sh /opt/sqlbot/app/start.sh
+COPY backend /opt/sqlbot/app
+# Install dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=backend/uv.lock,target=uv.lock \
+    --mount=type=bind,source=backend/pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project
+
+COPY frontend/dist /opt/sqlbot/frontend/dist
