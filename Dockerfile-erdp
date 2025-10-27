@@ -1,4 +1,10 @@
-FROM repo.seres.cn/dataease/sqlbot:v1.2.0
+FROM repo.seres.cn/dataease/sqlbot:v1.2.1
+
+ENV POSTGRES_SERVER=erdp-postgres-test-postgresql-postgresql.middleware
+ENV POSTGRES_PORT=5432
+ENV POSTGRES_DB=erdp_sqlbot_test
+ENV POSTGRES_USER=erdp_test_pg
+ENV POSTGRES_PASSWORD=erDp_7491_test
 
 ENV EXTERNAL_SQL_GENERATION_SERVICE_URL=http://erdp-ai-nlp2sql.erdp:8000/erdp-nl2sql
 ENV EXTERNAL_SQL_GENERATION_SERVICE_TIME_OUT=300
