@@ -212,8 +212,8 @@ class AiModelQuestion(BaseModel):
     def chart_sys_question(self):
         return get_chart_template()['system'].format(sql=self.sql, question=self.question, lang=self.lang)
 
-    def chart_user_question(self, chart_type: Optional[str] = None):
-        return get_chart_template()['user'].format(sql=self.sql, question=self.question, rule=self.rule,
+    def chart_user_question(self, chart_type: Optional[str] = None, enhanced_question: Optional[str] = None):
+        return get_chart_template()['user'].format(sql=self.sql, question=self.question if not enhanced_question else enhanced_question, rule=self.rule,
                                                    chart_type=chart_type)
 
     def analysis_sys_question(self):

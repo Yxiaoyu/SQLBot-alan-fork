@@ -577,8 +577,13 @@ class LLMService:
             ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
             response : dict = NL2SQLSession.generate_sql(self.chat_question.question, self.ds.name, self.ds.type, self.current_user.account, self.current_user.oid,  ds_id)
             # 构造成与原逻辑兼容的格式
-            full_sql_text = orjson.dumps({"success": response.get("is_generated_sql"), "sql": response.get("final_answer")}).decode()
-            yield {'content': full_sql_text, 'reasoning_content': ''}
+            if response.get("is_generated_sql"):
+                full_sql_text = orjson.dumps(
+                    {"success": response.get("is_generated_sql"), "sql": response.get("final_answer")}).decode()
+            else:
+                full_sql_text = orjson.dumps(
+                    {"success": response.get("is_generated_sql"), "message": response.get("final_answer")}).decode()
+            yield {'content': full_sql_text, 'enhanced_question': response.get("question"), 'reasoning_content': ''}
         else:
             # 原始的 LLM 调用逻辑
             res = process_stream(self.llm.stream(self.sql_message), token_usage)
@@ -718,9 +723,9 @@ class LLMService:
             return None
         return self.build_table_filter(session=_session, sql=sql, filters=filters)
 
-    def generate_chart(self, _session: Session, chart_type: Optional[str] = ''):
+    def generate_chart(self, _session: Session, chart_type: Optional[str] = '', enhanced_question: Optional[str] = ''):
         # append current question
-        self.chart_message.append(HumanMessage(self.chat_question.chart_user_question(chart_type)))
+        self.chart_message.append(HumanMessage(self.chat_question.chart_user_question(chart_type, enhanced_question)))
 
         self.current_logs[OperationEnum.GENERATE_CHART] = start_log(session=_session,
                                                                     ai_modal_id=self.chat_question.ai_modal_id,
@@ -1009,8 +1014,10 @@ class LLMService:
             sql_res = self.generate_sql(_session)
             full_sql_text = ''
             chunks_to_yield = []
+            enhanced_question = ''
             for chunk in sql_res:
                 full_sql_text += chunk.get('content', '')
+                enhanced_question += chunk.get('enhanced_question', '')
                 if in_chat:
                     chunks_to_yield.append('data:' + orjson.dumps(
                         {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
@@ -1019,13 +1026,14 @@ class LLMService:
             if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
                 data = orjson.loads(full_sql_text)
                 is_generated_sql = data.get('success')
-                final_answer = data.get('sql')
+                final_answer = data.get('message')
 
                 if is_generated_sql is False:
                     if in_chat:
                         yield 'data:' + orjson.dumps(
                             {'type': 'error', 'content': final_answer}).decode() + '\n\n'
                         yield 'data:' + orjson.dumps({'type': 'finish'}).decode() + '\n\n'
+                    self.save_error(message=final_answer)
                     return
 
             if in_chat:
@@ -1129,7 +1137,7 @@ class LLMService:
                 return
 
             # generate chart
-            chart_res = self.generate_chart(_session, chart_type)
+            chart_res = self.generate_chart(_session, chart_type, enhanced_question)
             full_chart_text = ''
             for chunk in chart_res:
                 full_chart_text += chunk.get('content')
