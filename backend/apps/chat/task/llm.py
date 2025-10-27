@@ -858,7 +858,7 @@ class LLMService:
     def save_error(self, session: Session, message: str):
         return save_error_message(session=session, record_id=self.record.id, message=message)
 
-        def transfer_sql_data(self,session: Session, sql_result: Dict[str, Any], sql_query: str):
+    def transfer_sql_data(self,session: Session, sql_result: Dict[str, Any], sql_query: str):
         if not sql_result or not sql_result["data"]:
             SQLBotLogUtil.warning(
                 f"Calling transfer_sql_data without sql result")
