@@ -8,7 +8,7 @@ from typing import List
 
 import orjson
 import pandas as pd
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, UploadFile, HTTPException, BackgroundTasks
 
 from apps.db.db import get_schema
 from apps.db.engine import get_engine_conn
@@ -67,9 +67,9 @@ async def check_by_id(session: SessionDep, trans: Trans, ds_id: int):
 
 
 @router.post("/add", response_model=CoreDatasource)
-async def add(session: SessionDep, trans: Trans, user: CurrentUser, ds: CreateDatasource):
+async def add(session: SessionDep, trans: Trans, user: CurrentUser, ds: CreateDatasource, background_tasks: BackgroundTasks):
     def inner():
-        return create_ds(session, trans, user, ds)
+        return create_ds(session, trans, user, ds, background_tasks)
 
     return await asyncio.to_thread(inner)
 
@@ -83,9 +83,9 @@ async def choose_tables(session: SessionDep, trans: Trans, id: int, tables: List
 
 
 @router.post("/update", response_model=CoreDatasource)
-async def update(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource):
+async def update(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource, background_tasks: BackgroundTasks):
     def inner():
-        return update_ds(session, trans, user, ds)
+        return update_ds(session, trans, user, ds, background_tasks)
 
     return await asyncio.to_thread(inner)
 

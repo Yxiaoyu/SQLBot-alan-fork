@@ -2,7 +2,7 @@ import datetime
 import json
 from typing import List, Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy import and_, text
 from sqlbot_xpack.permissions.models.ds_rules import DsRules
 from sqlmodel import select
@@ -13,7 +13,7 @@ from apps.datasource.embedding.table_embedding import calc_table_embedding
 from apps.datasource.utils.utils import aes_decrypt
 from apps.db.constant import DB
 from apps.db.db import get_tables, get_fields, exec_sql, check_connection
-from apps.db.engine import get_engine_config, get_engine_conn
+from apps.db.engine import get_engine_config, get_engine_conn, get_data_engine
 from common.core.config import settings
 from common.core.deps import SessionDep, CurrentUser, Trans
 from common.utils.embedding_threads import run_save_table_embeddings, run_save_ds_embeddings
@@ -69,9 +69,29 @@ def check_name(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDat
             and_(CoreDatasource.name == ds.name, CoreDatasource.oid == user.oid)).all()
         if ds_list is not None and len(ds_list) > 0:
             raise HTTPException(status_code=500, detail=trans('i18n_ds_name_exist'))
+            
+def _init_excel_datasource(ds_type: str, ds_id: int, background_tasks: BackgroundTasks):
+    if ds_type == "mysql":
+        def inner(ds_id: int):
+            db_session = None
+            try:
+                db_session = get_data_engine()
+                ds = db_session.query(CoreDatasource).filter(CoreDatasource.id == ds_id).first()
+                if not ds:
+                    logging.error(f"Datasource with id {ds_id} not found in background task.")
+                    return
+                conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration)))
+                NL2SQLSession.init_datasource(ds.name, ds.type, conf.host, conf.port, conf.username, conf.password,
+                                              conf.database)
+            except Exception as e:
+                logging.error(f"Error in background task to init datasource: {e}", exc_info=True)
+            finally:
+                if db_session:
+                    db_session.close()
 
+        background_tasks.add_task(inner, ds_id)
 
-def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: CreateDatasource):
+def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: CreateDatasource, background_tasks: BackgroundTasks):
     ds = CoreDatasource()
     deepcopy_ignore_extra(create_ds, ds)
     check_name(session, trans, user, ds)
@@ -93,9 +113,7 @@ def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: C
     updateNum(session, ds)
 
     # call external api to init datasource
-    if ds.type.lower() == "mysql":
-        conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration)))
-        NL2SQLSession.init_datasource(ds.name, ds.type, conf.host, conf.port, conf.username, conf.password, conf.database)
+    _init_excel_datasource(ds.type.lower(), ds.id, background_tasks)
     return ds
 
 
@@ -106,7 +124,7 @@ def chooseTables(session: SessionDep, trans: Trans, id: int, tables: List[CoreTa
     updateNum(session, ds)
 
 
-def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource):
+def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource, background_tasks: BackgroundTasks):
     ds.id = int(ds.id)
     check_name(session, trans, user, ds)
     # status = check_status(session, trans, ds)
@@ -121,10 +139,7 @@ def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreData
     run_save_ds_embeddings([ds.id])
 
     # call external api to init datasource
-    if ds.type.lower() == "mysql":
-        conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration)))
-        NL2SQLSession.init_datasource(ds.name, ds.type, conf.host, conf.port, conf.username, conf.password,
-                                      conf.database)
+    _init_excel_datasource(ds.type.lower(), ds.id, background_tasks)
     return ds
 
 
