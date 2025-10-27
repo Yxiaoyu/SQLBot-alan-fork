@@ -113,5 +113,10 @@ class Settings(BaseSettings):
 
     ORACLE_CLIENT_PATH: str = '/opt/sqlbot/db_client/oracle_instant_client'
 
+    EXTERNAL_SQL_GENERATION_SERVICE_URL: str | None = None  # 外部生成SQL的服务URL
+    EXTERNAL_SQL_GENERATION_SERVICE_TIME_OUT: int = 60  # 外部生成SQL的服务超时时间
+    EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV: str | None = None  # 外部生成SQL的数据源环境
+
+
 
 settings = Settings()  # type: ignore

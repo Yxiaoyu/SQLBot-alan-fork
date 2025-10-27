@@ -547,13 +547,48 @@ class LLMService:
         full_thinking_text = ''
         full_sql_text = ''
         token_usage = {}
-        res = process_stream(self.llm.stream(self.sql_message), token_usage)
-        for chunk in res:
-            if chunk.get('content'):
-                full_sql_text += chunk.get('content')
-            if chunk.get('reasoning_content'):
-                full_thinking_text += chunk.get('reasoning_content')
-            yield chunk
+        if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
+            SQLBotLogUtil.info(f"Calling external SQL generation service: {settings.EXTERNAL_SQL_GENERATION_SERVICE_URL}")
+            try:
+                # 准备请求体
+                request_data = {
+                    "question": self.chat_question.question,
+                    "db_id": self.ds.name,  # 使用数据源名称作为 db_id
+                    "db_type": self.ds.type,  # 使用数据源类型作为 db_type
+                    "db_env": settings.EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV
+                }
+                SQLBotLogUtil.info(f"Request payload for external service: {request_data}")
+
+                response = requests.post(settings.EXTERNAL_SQL_GENERATION_SERVICE_URL, json=request_data, timeout=settings.EXTERNAL_SQL_GENERATION_SERVICE_TIME_OUT)
+                response.raise_for_status()  # 如果请求失败 (非 2xx 状态码)，则抛出异常
+
+                response_data = response.json()
+                SQLBotLogUtil.info(f"Response from external service: {response_data}")
+
+                sql_from_service = response_data.get("SQL")
+                if not sql_from_service:
+                    raise SingleMessageError("External service did not return a SQL query.")
+
+                # 构造成与原逻辑兼容的格式
+                full_sql_text = orjson.dumps({"success": True, "sql": sql_from_service}).decode()
+                yield {'content': full_sql_text, 'reasoning_content': ''}
+
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Failed to call external SQL generation service: {e}"
+                SQLBotLogUtil.error(error_msg)
+                raise SingleMessageError(error_msg) from e
+            except Exception as e:
+                SQLBotLogUtil.error(f"An error occurred during external SQL generation: {e}")
+                raise e
+        else:
+            # 原始的 LLM 调用逻辑
+            res = process_stream(self.llm.stream(self.sql_message), token_usage)
+            for chunk in res:
+                if chunk.get('content'):
+                    full_sql_text += chunk.get('content')
+                if chunk.get('reasoning_content'):
+                    full_thinking_text += chunk.get('reasoning_content')
+                yield chunk
 
         self.sql_message.append(AIMessage(full_sql_text))
 
