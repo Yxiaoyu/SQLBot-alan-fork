@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, text
 from sqlbot_xpack.permissions.models.ds_rules import DsRules
 from sqlmodel import select
+from common.core.nl2sql_session import NL2SQLSession
 
 from apps.datasource.crud.permission import get_column_permission_fields, get_row_permission_filters, is_normal_user
 from apps.datasource.embedding.table_embedding import calc_table_embedding
@@ -50,6 +51,12 @@ def check_status_by_id(session: SessionDep, trans: Trans, ds_id: int, is_raise: 
 def check_status(session: SessionDep, trans: Trans, ds: CoreDatasource, is_raise: bool = False):
     return check_connection(trans, ds, is_raise)
 
+def check_external_datasource_status(session: SessionDep, trans: Trans, ds: CoreDatasource, is_raise: bool = False):
+    datasource_status = False
+    if ds.type.lower() == "mysql":
+        datasource_status = NL2SQLSession.check_datasource_status(ds.name, ds.type)
+    return datasource_status
+
 
 def check_name(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource):
     if ds.id is not None:
@@ -84,6 +91,11 @@ def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: C
     # save tables and fields
     sync_table(session, ds, create_ds.tables)
     updateNum(session, ds)
+
+    # call external api to init datasource
+    if ds.type.lower() == "mysql":
+        conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration)))
+        NL2SQLSession.init_datasource(ds.name, ds.type, conf.host, conf.port, conf.username, conf.password, conf.database)
     return ds
 
 
@@ -107,6 +119,12 @@ def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreData
     session.commit()
 
     run_save_ds_embeddings([ds.id])
+
+    # call external api to init datasource
+    if ds.type.lower() == "mysql":
+        conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration)))
+        NL2SQLSession.init_datasource(ds.name, ds.type, conf.host, conf.port, conf.username, conf.password,
+                                      conf.database)
     return ds
 
 

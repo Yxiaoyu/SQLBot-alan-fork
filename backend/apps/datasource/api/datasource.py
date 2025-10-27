@@ -50,6 +50,13 @@ async def check(session: SessionDep, trans: Trans, ds: CoreDatasource):
 
     return await asyncio.to_thread(inner)
 
+@router.post("/check/external/datasource")
+async def check_external_datasource(session: SessionDep, trans: Trans, ds: CoreDatasource):
+    def inner():
+        return check_external_datasource_status(session, trans, ds, True)
+
+    return await asyncio.to_thread(inner)
+
 
 @router.get("/check/{ds_id}")
 async def check_by_id(session: SessionDep, trans: Trans, ds_id: int):
