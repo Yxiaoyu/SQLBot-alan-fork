@@ -2,7 +2,8 @@ import os
 
 import sqlbot_xpack
 from alembic.config import Config
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
+from fastapi.openapi.utils import get_openapi
 from fastapi.concurrency import asynccontextmanager
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
@@ -104,7 +105,42 @@ app.add_exception_handler(Exception, exception_handler.global_exception_handler)
 
 mcp.setup_server()
 
-sqlbot_xpack.init_fastapi_app(app)
+# 创建一个子应用实例来承载 sqlbot_xpack 的所有功能
+xpack_app = FastAPI()
+# 让 sqlbot_xpack 在这个子应用上注册它的 API 和静态文件
+sqlbot_xpack.init_fastapi_app(xpack_app)
+# 将整个子应用挂载到主 app 上，并统一添加 /sqlbot 前缀
+# 这样，无论是 API 还是静态文件，都会带上 /sqlbot 前缀
+app.mount("/erdp-sqlbot", xpack_app)
+
+# 集成子应用的文档
+def combined_openapi():
+    main_openapi = get_openapi(
+        title=app.title,
+        version=app.version,
+        openapi_version=app.openapi_version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    xpack_openapi = get_openapi(
+        title=xpack_app.title,
+        version=xpack_app.version,
+        openapi_version=xpack_app.openapi_version,
+        description=xpack_app.description,
+        routes=xpack_app.routes,
+    )
+
+    # main_openapi["paths"].update(xpack_openapi["paths"])
+    # Add /sqlbot prefix to xpack_openapi paths
+    for path, data in xpack_openapi["paths"].items():
+        main_openapi["paths"][f"/erdp-sqlbot{path}"] = data
+
+    return main_openapi
+
+
+app.openapi = combined_openapi
+
 if __name__ == "__main__":
     import uvicorn
 

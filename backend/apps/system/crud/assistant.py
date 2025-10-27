@@ -50,7 +50,12 @@ def get_assistant_ds(session: Session, llm_service) -> list[dict]:
                 """ private_list: list[int] = config.get('private_list') or None
                 if private_list:
                     stmt = stmt.where(~CoreDatasource.id.in_(private_list)) """
-        db_ds_list = session.exec(stmt)
+         # The session passed from LLMService is a sqlalchemy session, which does not have an exec method.
+        if hasattr(session, 'exec'):
+            db_ds_list = session.exec(stmt)
+        else:
+            db_ds_list = session.query(CoreDatasource.id, CoreDatasource.name, CoreDatasource.description).filter(stmt.whereclause).all()
+
 
         result_list = [
             {

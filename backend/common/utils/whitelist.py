@@ -5,6 +5,8 @@ from common.core.config import settings
 from common.utils.utils import SQLBotLogUtil
 wlist = [
     "/",
+    "/erdp-sqlbot",
+    "/erdp-sqlbot/",
     "/docs",
     "/login/*",
     "*.json",
