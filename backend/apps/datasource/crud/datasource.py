@@ -52,7 +52,7 @@ def check_status(session: SessionDep, trans: Trans, ds: CoreDatasource, is_raise
     return check_connection(trans, ds, is_raise)
 
 def check_external_datasource_status(session: SessionDep, trans: Trans, ds: CoreDatasource, is_raise: bool = False):
-    datasource_status = False
+    datasource_status = True
     if ds.type.lower() == "mysql":
         datasource_status = NL2SQLSession.check_datasource_status(ds.name, ds.type)
     return datasource_status
