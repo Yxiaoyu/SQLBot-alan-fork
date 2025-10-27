@@ -78,6 +78,14 @@ const handleEditDatasource = (res: any) => {
 }
 
 const handleQuestion = async (id: string) => {
+  // 外部数据检查
+  const item = datasourceListWithSearch.value.find((ele) => ele.id === id)
+  const externalDatasourceValid = await datasourceApi.check_external_datasource(item)
+  if (!externalDatasourceValid) {
+    ElMessage.error('数据源校验失败')
+    return
+  }
+
   try {
     await chatApi.checkLLMModel()
   } catch (error: any) {

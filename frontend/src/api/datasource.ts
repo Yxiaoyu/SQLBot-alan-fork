@@ -2,6 +2,7 @@ import { request } from '@/utils/request'
 
 export const datasourceApi = {
   check: (data: any) => request.post('/datasource/check', data),
+  check_external_datasource: (data: any) => request.post('/datasource/check/external/datasource', data),
   check_by_id: (id: any) => request.get(`/datasource/check/${id}`),
   relationGet: (id: any) => request.post(`/table_relation/get/${id}`),
   relationSave: (dsId: any, data: any) => request.post(`/table_relation/save/${dsId}`, data),

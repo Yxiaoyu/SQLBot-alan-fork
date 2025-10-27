@@ -67,7 +67,15 @@ function selectDsInDialog(ds: any) {
   innerDs.value = ds.id
 }
 
-function confirmSelectDs() {
+async function confirmSelectDs() {
+  // 外部数据检查
+  const item = datasourceListWithSearch.value.find((ele) => ele.id === innerDs.value)
+  const externalDatasourceValid = await datasourceApi.check_external_datasource(item)
+  if (!externalDatasourceValid) {
+    ElMessage.error('数据源校验失败')
+    return
+  }
+
   if (innerDs.value) {
     statusLoading.value = true
     //check first
