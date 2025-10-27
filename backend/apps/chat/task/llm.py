@@ -571,7 +571,7 @@ class LLMService:
         full_thinking_text = ''
         full_sql_text = ''
         token_usage = {}
-        if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
+        if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL and self.ds.type.lower() == 'mysql':
             SQLBotLogUtil.info(
                 f"Calling external SQL generation service: {settings.EXTERNAL_SQL_GENERATION_SERVICE_URL}")
             ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
@@ -1023,7 +1023,7 @@ class LLMService:
                         {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
                          'type': 'sql-result'}).decode() + '\n\n')
 
-            if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
+            if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL and self.ds.type.lower() == 'mysql':
                 data = orjson.loads(full_sql_text)
                 is_generated_sql = data.get('success')
                 final_answer = data.get('message')
