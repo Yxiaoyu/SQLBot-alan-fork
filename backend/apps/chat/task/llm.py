@@ -4,6 +4,7 @@ import os
 import traceback
 import urllib.parse
 import warnings
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
 from typing import Any, List, Optional, Union, Dict, Iterator
@@ -145,6 +146,28 @@ class LLMService:
 </error-msg>'''
         else:
             self.chat_question.error_msg = ''
+
+    @staticmethod
+    def _format_terminologies_for_evidence(xml_string: str) -> str:
+        """
+        将术语的XML字符串转换为'key=value,key2=value'格式的字符串。
+        """
+        if not xml_string or xml_string.strip() == '':
+            return ""
+
+        try:
+            root = ET.fromstring(xml_string)
+            evidence_parts = []
+            for terminology in root.findall('terminology'):
+                description = terminology.find('description').text
+                words = [word.text for word in terminology.find('words').findall('word')]
+                for word in words:
+                    if word and description:
+                        evidence_parts.append(f"{word}={description}")
+            return "，".join(evidence_parts)
+        except ET.ParseError:
+            # 如果解析失败，返回原始字符串，因为外部服务可能需要它或记录日志
+            return xml_string
 
     @classmethod
     async def create(cls, *args, **kwargs):
@@ -555,7 +578,9 @@ class LLMService:
                     "question": self.chat_question.question,
                     "db_id": self.ds.name,  # 使用数据源名称作为 db_id
                     "db_type": self.ds.type,  # 使用数据源类型作为 db_type
-                    "db_env": settings.EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV
+                    "db_env": settings.EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV,
+                    "evidence": self._format_terminologies_for_evidence(self.chat_question.terminologies),
+                    "example_sql": self.chat_question.data_training
                 }
                 SQLBotLogUtil.info(f"Request payload for external service: {request_data}")
 
