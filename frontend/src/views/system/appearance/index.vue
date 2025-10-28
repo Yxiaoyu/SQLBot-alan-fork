@@ -276,7 +276,7 @@ const baseUrl = basePath + '/system/appearance/picture/'
 const fileList = ref<(UploadUserFile & { flag: string })[]>([])
 const navigateBg = ref('dark')
 const themeColor = ref('default')
-const customColor = ref('#1CBA90')
+const customColor = ref('#1f64ff')
 const web = ref('')
 const bg = ref('')
 const login = ref('')
@@ -453,7 +453,7 @@ const init = () => {
         if (themeColor.value === 'custom') {
           setPageCustomColor(customColor.value)
         } else {
-          setPageCustomColor(isBlue.value ? '#3370FF' : '#1CBA90')
+          setPageCustomColor(isBlue.value ? '#3370FF' : '#1f64ff')
         }
       })
     })
@@ -489,7 +489,7 @@ const themeColorChange = (val: any) => {
   if (themeColor.value === 'custom') {
     setPageCustomColor(customColor.value)
   } else {
-    setPageCustomColor(isBlue.value ? '#3370FF' : '#1CBA90')
+    setPageCustomColor(isBlue.value ? '#3370FF' : '#1f64ff')
   }
 }
 const customColorChange = (val: any) => {
@@ -744,7 +744,7 @@ onUnmounted(() => {
           border-radius: 6px;
 
           .is-active {
-            background: var(--ed-color-primary-1a, #1cba901a);
+            background: var(--ed-color-primary-1a, #1f64ff1a);
             font-weight: 500;
           }
 

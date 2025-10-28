@@ -559,12 +559,12 @@ const btnSelectClick = (val: any) => {
       color: #646a73;
 
       &:hover {
-        background: var(--ed-color-primary-1a, #1cba901a);
+        background: var(--ed-color-primary-1a, #1f64ff1a);
         color: var(--ed-color-primary);
       }
       &:active {
         color: var(--ed-color-primary-dark-2);
-        background: var(--ed-color-primary-33, #1cba9033);
+        background: var(--ed-color-primary-33, #1f64ff33);
       }
     }
 
@@ -679,7 +679,7 @@ const btnSelectClick = (val: any) => {
           }
 
           &.isActive {
-            background: var(--ed-color-primary-1a, #1cba901a);
+            background: var(--ed-color-primary-1a, #1f64ff1a);
             color: var(--ed-color-primary);
           }
         }
@@ -796,7 +796,7 @@ const btnSelectClick = (val: any) => {
           border-radius: 4px;
 
           .is-active {
-            background: var(--ed-color-primary-1a, #1cba901a);
+            background: var(--ed-color-primary-1a, #1f64ff1a);
           }
 
           .ed-button:not(.is-active) {

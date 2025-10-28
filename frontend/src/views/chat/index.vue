@@ -1333,10 +1333,10 @@ onMounted(() => {
       --ed-button-hover-text-color: var(--ed-color-primary, rgba(28, 186, 144, 1));
       --ed-button-active-text-color: var(--ed-color-primary, rgba(28, 186, 144, 1));
       --ed-button-bg-color: rgba(248, 249, 250, 1);
-      --ed-button-hover-bg-color: var(--ed-color-primary-1a, #1cba901a);
+      --ed-button-hover-bg-color: var(--ed-color-primary-1a, #1f64ff1a);
       --ed-button-border-color: rgba(217, 220, 223, 1);
       --ed-button-hover-border-color: var(--ed-color-primary, rgba(28, 186, 144, 1));
-      --ed-button-active-bg-color: var(--ed-color-primary-33, #1cba9033);
+      --ed-button-active-bg-color: var(--ed-color-primary-33, #1f64ff33);
       --ed-button-active-border-color: var(--ed-color-primary, rgba(28, 186, 144, 1));
     }
   }

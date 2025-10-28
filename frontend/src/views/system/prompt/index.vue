@@ -671,7 +671,7 @@ const typeChange = (val: any) => {
       border-radius: 6px;
 
       .is-active {
-        background: var(--ed-color-primary-1a, #1cba901a);
+        background: var(--ed-color-primary-1a, #1f64ff1a);
         font-weight: 500;
       }
 

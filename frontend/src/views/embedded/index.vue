@@ -118,7 +118,7 @@ const customSet = reactive({
   name: '',
   welcome: t('embedded.i_am_sqlbot'),
   welcome_desc: t('embedded.data_analysis_now'),
-  theme: '#1CBA90',
+  theme: '#1f64ff',
   header_font_color: '#1F2329',
 }) as { [key: string]: any }
 const logo = ref()
@@ -201,7 +201,7 @@ onBeforeMount(async () => {
             ? customColor
             : themeColor === 'blue'
               ? '#3370ff'
-              : '#1CBA90'
+              : '#1f64ff'
         customSet.theme = currentColor || customSet.theme
       }
 
@@ -230,7 +230,7 @@ onBeforeUnmount(() => {
     z-index: 100;
     height: 56px;
     line-height: 56px;
-    background: var(--ed-color-primary-1a, #1cba901a);
+    background: var(--ed-color-primary-1a, #1f64ff1a);
     height: 56px;
     padding: 0 16px;
     display: flex;
