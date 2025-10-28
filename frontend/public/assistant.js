@@ -37,33 +37,68 @@
   const chatButtonHtml = (data) => `
 <div class="sqlbot-assistant-chat-button">
   <img style="height:30px;width:30px;display:none;" src="${data.float_icon}">
-  <svg style="display:none;" data-v-39a51454="" xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none">
-    <path fill="#149CC5" d="M28.333 13.669h-.231c.138.758.207 1.527.206 2.298.005.946-.107 1.89-.335 2.808h.65a1.05 1.05 0 0 0 1.05-1.05V15.01a1.343 1.343 0 0 0-1.34-1.341"></path>
-    <path fill="#69CAA4" d="M1.692 15.967c0-.77.068-1.54.206-2.298h-.23a1.34 1.34 0 0 0-1.342 1.34v2.716a1.05 1.05 0 0 0 1.05 1.05h.651a11.4 11.4 0 0 1-.335-2.808"></path>
-    <path fill="url(#a)" d="M15 3.795c-6.89 0-12.474 5.282-12.474 12.171 0 6.89 5.585 10.239 12.474 10.239s12.474-3.35 12.474-10.238c0-6.89-5.585-12.172-12.474-12.172m3.026 17.33h-6.052a6 6 0 0 1-2.484-.535c-.564-.256-2.208.282-2.663-.127-.551-.495.117-1.969-.221-2.636a6.014 6.014 0 0 1 5.368-8.73h6.052a6.014 6.014 0 0 1 0 12.029"></path>
-    <path fill="url(#b)" d="M15 3.795c-6.89 0-12.474 5.282-12.474 12.171 0 6.89 5.585 10.239 12.474 10.239s12.474-3.35 12.474-10.238c0-6.89-5.585-12.172-12.474-12.172m3.026 17.33h-6.052a6 6 0 0 1-2.484-.535c-.564-.256-2.208.282-2.663-.127-.551-.495.117-1.969-.221-2.636a6.014 6.014 0 0 1 5.368-8.73h6.052a6.014 6.014 0 0 1 0 12.029"></path>
-    <path fill="#75CCCC" d="M10.546 14.915h-1.78v3.88h1.78zM14.12 13.193h-1.78v5.602h1.78zM17.694 15.438h-1.78v3.357h1.78zM21.233 12.452h-1.779v6.343h1.78z"></path>
-    <defs>
-      <linearGradient id="a" x1="6.65" x2="25.099" y1="4.441" y2="29.249" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#B2F288"></stop>
-        <stop offset=".181" stop-color="#80D79C"></stop>
-        <stop offset=".371" stop-color="#52BEAD"></stop>
-        <stop offset=".554" stop-color="#2FAABB"></stop>
-        <stop offset=".724" stop-color="#159CC5"></stop>
-        <stop offset=".878" stop-color="#0594CB"></stop>
-        <stop offset="1" stop-color="#0091CD"></stop>
-      </linearGradient>
-      <linearGradient id="b" x1="6.65" x2="25.099" y1="4.441" y2="29.249" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#B2F288"></stop>
-        <stop offset=".181" stop-color="#80D79C"></stop>
-        <stop offset=".371" stop-color="#52BEAD"></stop>
-        <stop offset=".554" stop-color="#2FAABB"></stop>
-        <stop offset=".724" stop-color="#159CC5"></stop>
-        <stop offset=".878" stop-color="#0594CB"></stop>
-        <stop offset="1" stop-color="#0091CD"></stop>
-      </linearGradient>
-    </defs>
-  </svg>
+<svg width="30" height="30" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g clip-path="url(#clip0_1170_85)">
+    <circle cx="15" cy="15" r="14.0625" fill="url(#paint0_linear_1170_85)" />
+    <g filter="url(#filter0_di_1170_85)">
+      <path
+        d="M15.3018 3.38672C16.3145 3.38693 17.1357 4.20794 17.1357 5.2207C17.1357 5.89817 16.767 6.48806 16.2207 6.80566V7.79688C16.995 7.99096 17.6033 8.39036 17.8838 8.8877H18.6621C21.3958 8.88787 23.7464 10.5208 24.7979 12.8633C25.8021 12.876 26.6133 13.897 26.6133 15.1553C26.6132 16.2648 25.9821 17.1895 25.1445 17.4014C24.5797 19.4521 23.0686 21.1096 21.1094 21.876L21.1084 21.8799L12.8545 25.0898V22.3379H11.6309C8.53539 22.3378 5.9299 20.2463 5.14746 17.3994C4.31412 17.1834 3.68759 16.261 3.6875 15.1553C3.6875 13.9006 4.49392 12.8817 5.49414 12.8633C6.5455 10.5206 8.89694 8.88779 11.6309 8.8877H12.417C12.7337 8.32641 13.4683 7.89108 14.3867 7.7334V6.80859C13.8377 6.49167 13.4678 5.90015 13.4678 5.2207C13.4678 4.20781 14.2889 3.38672 15.3018 3.38672Z"
+        fill="white" />
+    </g>
+    <g filter="url(#filter1_i_1170_85)">
+      <rect x="8.89062" y="11.9453" width="12.5329" height="7.33634" rx="3.66817" fill="url(#paint1_linear_1170_85)" />
+    </g>
+    <rect x="12.8633" y="14.082" width="1.22272" height="3.05681" rx="0.611362" fill="white" />
+    <path d="M17.4483 14.6953L16.5312 15.6124L17.4483 16.5294" stroke="white" stroke-width="1.2" stroke-linecap="round"
+      stroke-linejoin="round" />
+  </g>
+  <defs>
+    <filter id="filter0_di_1170_85" x="2.1875" y="3.08672" width="25.9258" height="24.7031" filterUnits="userSpaceOnUse"
+      color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+        result="hardAlpha" />
+      <feOffset dy="1.2" />
+      <feGaussianBlur stdDeviation="0.75" />
+      <feComposite in2="hardAlpha" operator="out" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0.133333 0 0 0 0 0.572549 0 0 0 0 0.996078 0 0 0 0.26 0" />
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1170_85" />
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1170_85" result="shape" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+        result="hardAlpha" />
+      <feOffset dy="0.3" />
+      <feGaussianBlur stdDeviation="0.6" />
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0.151799 0 0 0 0 0.70313 0 0 0 0 1 0 0 0 1 0" />
+      <feBlend mode="normal" in2="shape" result="effect2_innerShadow_1170_85" />
+    </filter>
+    <filter id="filter1_i_1170_85" x="8.89062" y="11.9453" width="12.5312" height="8.53594" filterUnits="userSpaceOnUse"
+      color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix" />
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+        result="hardAlpha" />
+      <feOffset dy="1.2" />
+      <feGaussianBlur stdDeviation="0.6" />
+      <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0741525 0 0 0 0 0.455172 0 0 0 0 0.9886 0 0 0 1 0" />
+      <feBlend mode="normal" in2="shape" result="effect1_innerShadow_1170_85" />
+    </filter>
+    <linearGradient id="paint0_linear_1170_85" x1="15.2591" y1="-0.285326" x2="15.2591" y2="29.5211"
+      gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1F64FF" />
+      <stop offset="1" stop-color="#29EEFC" />
+    </linearGradient>
+    <linearGradient id="paint1_linear_1170_85" x1="15.2725" y1="11.6263" x2="15.2725" y2="19.4013"
+      gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1F64FF" />
+      <stop offset="1" stop-color="#29EEFC" />
+    </linearGradient>
+    <clipPath id="clip0_1170_85">
+      <rect width="30" height="30" fill="white" />
+    </clipPath>
+  </defs>
+</svg>
 </div>`
 
   const getChatContainerHtml = (data) => {
