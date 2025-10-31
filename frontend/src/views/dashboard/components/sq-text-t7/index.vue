@@ -19,7 +19,7 @@ const content = ref('这个是个测试')
 const editorRef = ref(null)
 
 const initOptions = {
-  base_url: '/tinymce', // 指向 public/tinymce 目录
+  base_url:  import.meta.env.VITE_STATIC_BASE + '/tinymce', // 指向 public/tinymce 目录
   suffix: '.min',
   height: 500,
   menubar: false,

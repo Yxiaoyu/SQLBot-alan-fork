@@ -57,7 +57,7 @@ const props = defineProps({
 const { configItem } = toRefs(props)
 const tinymceId = 'vue-tinymce-' + +new Date() + ((Math.random() * 1000).toFixed(0) + '')
 const init = reactive({
-  base_url: '/tinymce', // 指向 public/tinymce 目录
+  base_url:  import.meta.env.VITE_STATIC_BASE + '/tinymce', // 指向 public/tinymce 目录
   suffix: '.min',
   // selector: tinymceId,
   language: 'zh_CN',
