@@ -17,7 +17,7 @@ from common.core.deps import SessionDep, CurrentUser, Trans
 from common.utils.utils import SQLBotLogUtil
 from ..crud.datasource import get_datasource_list, check_status, create_ds, update_ds, delete_ds, getTables, getFields, \
     execSql, update_table_and_fields, getTablesByDs, chooseTables, preview, updateTable, updateField, get_ds, fieldEnum, \
-    check_status_by_id
+    check_status_by_id, check_external_datasource_status
 from ..crud.field import get_fields_by_table_id
 from ..crud.table import get_tables_by_ds_id
 from ..models.datasource import CoreDatasource, CreateDatasource, TableObj, CoreTable, CoreField
@@ -75,9 +75,9 @@ async def add(session: SessionDep, trans: Trans, user: CurrentUser, ds: CreateDa
 
 
 @router.post("/chooseTables/{id}")
-async def choose_tables(session: SessionDep, trans: Trans, id: int, tables: List[CoreTable]):
+async def choose_tables(session: SessionDep, trans: Trans, id: int, tables: List[CoreTable], background_tasks: BackgroundTasks):
     def inner():
-        chooseTables(session, trans, id, tables)
+        chooseTables(session, trans, id, tables, background_tasks)
 
     await asyncio.to_thread(inner)
 
@@ -186,8 +186,8 @@ async def edit_table(session: SessionDep, table: CoreTable):
 
 
 @router.post("/editField")
-async def edit_field(session: SessionDep, field: CoreField):
-    updateField(session, field)
+async def edit_field(session: SessionDep, field: CoreField, background_tasks: BackgroundTasks):
+    updateField(session, field, background_tasks)
 
 
 @router.post("/previewData/{id}")

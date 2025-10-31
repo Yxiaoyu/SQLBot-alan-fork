@@ -1,10 +1,11 @@
 import concurrent
 import json
 import os
+import time
 import traceback
 import urllib.parse
-import warnings
 import xml.etree.ElementTree as ET
+import warnings
 from concurrent.futures import ThreadPoolExecutor, Future
 from datetime import datetime
 from typing import Any, List, Optional, Union, Dict, Iterator
@@ -22,7 +23,6 @@ from sqlbot_xpack.custom_prompt.curd.custom_prompt import find_custom_prompts
 from sqlbot_xpack.custom_prompt.models.custom_prompt_model import CustomPromptTypeEnum
 from sqlbot_xpack.license.license_manage import SQLBotLicenseUtil
 from sqlmodel import Session
-from common.core.nl2sql_session import NL2SQLSession
 
 from apps.ai_model.model_factory import LLMConfig, LLMFactory, get_default_config
 from apps.chat.curd.chat import save_question, save_sql_answer, save_sql, \
@@ -34,6 +34,11 @@ from apps.chat.curd.chat import save_question, save_sql_answer, save_sql, \
     get_last_execute_sql_error
 from apps.chat.models.chat_model import ChatQuestion, ChatRecord, Chat, RenameChat, ChatLog, OperationEnum, \
     ChatFinishStep
+from sqlbot_xpack.license.license_manage import SQLBotLicenseUtil
+from sqlbot_xpack.custom_prompt.curd.custom_prompt import find_custom_prompts
+from sqlbot_xpack.custom_prompt.models.custom_prompt_model import CustomPromptTypeEnum
+
+from apps.chat.task.data_transfer import DataTransfer
 from apps.data_training.curd.data_training import get_training_template
 from apps.datasource.crud.datasource import get_table_schema
 from apps.datasource.crud.permission import get_row_permission_filters, is_normal_user
@@ -46,6 +51,7 @@ from apps.terminology.curd.terminology import get_terminology_template
 from common.core.config import settings
 from common.core.db import engine
 from common.core.deps import CurrentAssistant, CurrentUser
+from common.core.nl2sql_session import NL2SQLSession
 from common.error import SingleMessageError, SQLBotDBError, ParseSQLResultError, SQLBotDBConnectionError
 from common.utils.utils import SQLBotLogUtil, extract_nested_json, prepare_for_orjson
 
@@ -103,13 +109,13 @@ class LLMService:
                 self.out_ds_instance = AssistantOutDsFactory.get_instance(current_assistant)
                 ds = self.out_ds_instance.get_ds(chat.datasource)
                 if not ds:
-                    raise SingleMessageError("No available datasource configuration found")
+                    raise SingleMessageError("数据源无效")
                 chat_question.engine = ds.type + get_version(ds)
                 chat_question.db_schema = self.out_ds_instance.get_db_schema(ds.id, chat_question.question)
             else:
                 ds = session.get(CoreDatasource, chat.datasource)
                 if not ds:
-                    raise SingleMessageError("No available datasource configuration found")
+                    raise SingleMessageError("数据源无效")
                 chat_question.engine = (ds.type_name if ds.type != 'excel' else 'PostgreSQL') + get_version(ds)
                 chat_question.db_schema = get_table_schema(session=session, current_user=current_user, ds=ds,
                                                            question=chat_question.question, embedding=embedding)
@@ -147,7 +153,6 @@ class LLMService:
 </error-msg>'''
         else:
             self.chat_question.error_msg = ''
-
 
     @classmethod
     async def create(cls, *args, **kwargs):
@@ -208,7 +213,6 @@ class LLMService:
         self.data_transfer_message = []
         # add sys prompt
         self.data_transfer_message.append(SystemMessage(content=self.chat_question.data_transfer_sys_question()))
-
 
     def init_record(self, session: Session) -> ChatRecord:
         self.record = save_question(session=session, current_user=self.current_user, question=self.chat_question)
@@ -412,7 +416,7 @@ class LLMService:
                 for ds in _session.exec(stmt)
             ]
         if not _ds_list:
-            raise SingleMessageError('No available datasource configuration found')
+            raise SingleMessageError('数据源无效')
         ignore_auto_select = _ds_list and len(_ds_list) == 1
         # ignore auto select ds
 
@@ -512,7 +516,7 @@ class LLMService:
             elif data['fail']:
                 raise SingleMessageError(data['fail'])
             else:
-                raise SingleMessageError('No available datasource configuration found')
+                raise SingleMessageError('数据源无效')
 
         except Exception as e:
             _error = e
@@ -555,12 +559,14 @@ class LLMService:
         full_thinking_text = ''
         full_sql_text = ''
         token_usage = {}
+
         if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL and self.ds.type.lower() == 'mysql':
             SQLBotLogUtil.info(
                 f"Calling external SQL generation service: {settings.EXTERNAL_SQL_GENERATION_SERVICE_URL}")
             ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
             response : dict = NL2SQLSession.generate_sql(self.chat_question.question, self.ds.name, self.ds.type, self.current_user.account, self.current_user.oid,  ds_id)
             # 构造成与原逻辑兼容的格式
+
             if response.get("is_generated_sql"):
                 full_sql_text = orjson.dumps(
                     {"success": response.get("is_generated_sql"), "sql": response.get("final_answer")}).decode()
@@ -582,8 +588,7 @@ class LLMService:
 
         self.current_logs[OperationEnum.GENERATE_SQL] = end_log(session=_session,
                                                                 log=self.current_logs[OperationEnum.GENERATE_SQL],
-                                                                full_message=[{'type': msg.type, 'content': msg.content}
-                                                                              for msg in self.sql_message],
+                                                                full_message=[{'type': msg.type, 'content': msg.content} for msg in self.sql_message],
                                                                 reasoning_content=full_thinking_text,
                                                                 token_usage=token_usage)
         self.record = save_sql_answer(session=_session, record_id=self.record.id,
@@ -707,7 +712,7 @@ class LLMService:
             return None
         return self.build_table_filter(session=_session, sql=sql, filters=filters)
 
-    def generate_chart(self, _session: Session, chart_type: Optional[str] = '', enhanced_question: Optional[str] = ''):
+    def generate_chart(self,_session: Session, chart_type: Optional[str] = '', enhanced_question: Optional[str] = ''):
         # append current question
         self.chart_message.append(HumanMessage(self.chat_question.chart_user_question(chart_type, enhanced_question)))
 
@@ -931,6 +936,7 @@ class LLMService:
 
         return sql_result
 
+
     def save_sql_data(self, session: Session, data_obj: Dict[str, Any]):
         try:
             data_result = data_obj.get('data')
@@ -1006,6 +1012,7 @@ class LLMService:
                  finish_step: ChatFinishStep = ChatFinishStep.GENERATE_CHART):
         json_result: Dict[str, Any] = {'success': True}
         _session = None
+        start_time = time.time()
         try:
             _session = session_maker()
             if self.ds:
@@ -1068,6 +1075,7 @@ class LLMService:
                 raise SQLBotDBConnectionError('Connect DB failed')
 
             # generate sql
+            generate_sql=time.time()
             sql_res = self.generate_sql(_session)
             full_sql_text = ''
             chunks_to_yield = []
@@ -1079,7 +1087,7 @@ class LLMService:
                     chunks_to_yield.append('data:' + orjson.dumps(
                         {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
                          'type': 'sql-result'}).decode() + '\n\n')
-
+            SQLBotLogUtil.info(f"生成sql耗时 in {time.time() - generate_sql:.2f} seconds")
             if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL and self.ds.type.lower() == 'mysql':
                 data = orjson.loads(full_sql_text)
                 is_generated_sql = data.get('success')
@@ -1159,9 +1167,13 @@ class LLMService:
                     yield json_result
                 return
 
+            execute_sql=time.time()
             result = self.execute_sql(sql=real_execute_sql)
+            SQLBotLogUtil.info(f"执行sql耗时 in {time.time() - execute_sql:.2f} seconds")
             result = self.transfer_sql_data(session=_session, sql_result=result, sql_query=real_execute_sql)
+            save_sql_data = time.time()
             self.save_sql_data(session=_session, data_obj=result)
+            SQLBotLogUtil.info(f"保存sql结果耗时 in {time.time() - save_sql_data:.2f} seconds")
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': 'execute-success', 'type': 'sql-data'}).decode() + '\n\n'
             if not stream:
@@ -1195,6 +1207,7 @@ class LLMService:
                 return
 
             # generate chart
+            generate_chart=time.time()
             chart_res = self.generate_chart(_session, chart_type, enhanced_question)
             full_chart_text = ''
             for chunk in chart_res:
@@ -1203,12 +1216,15 @@ class LLMService:
                     yield 'data:' + orjson.dumps(
                         {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
                          'type': 'chart-result'}).decode() + '\n\n'
+            SQLBotLogUtil.info(f"生成chart耗时 in {time.time() - generate_chart:.2f} seconds")
             if in_chat:
                 yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'chart generated'}).decode() + '\n\n'
 
             # filter chart
             SQLBotLogUtil.info(full_chart_text)
+            check_save_chart=time.time()
             chart = self.check_save_chart(session=_session, res=full_chart_text)
+            SQLBotLogUtil.info(f"保存chart结果耗时 in {time.time() - check_save_chart:.2f} seconds")
             SQLBotLogUtil.info(chart)
 
             if not stream:
@@ -1266,7 +1282,7 @@ class LLMService:
 
             if not stream:
                 yield json_result
-
+            SQLBotLogUtil.info(f"整个问题处理耗时 in {time.time() - start_time:.2f} seconds")
         except Exception as e:
             traceback.print_exc()
             error_msg: str

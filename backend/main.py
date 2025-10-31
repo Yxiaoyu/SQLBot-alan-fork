@@ -1,10 +1,11 @@
+import asyncio
 import os
 
 import sqlbot_xpack
 from alembic.config import Config
-from fastapi import FastAPI, APIRouter
-from fastapi.openapi.utils import get_openapi
+from fastapi import FastAPI, APIRouter # 添加 APIRouter 导入
 from fastapi.concurrency import asynccontextmanager
+from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi_mcp import FastApiMCP
@@ -12,6 +13,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from alembic import command
+from apps.ai_model.embedding import EmbeddingModelCache
 from apps.api import api_router
 from common.utils.embedding_threads import fill_empty_table_and_ds_embeddings
 from apps.system.crud.aimodel_manage import async_model_info
@@ -49,6 +51,7 @@ async def lifespan(app: FastAPI):
     init_terminology_embedding_data()
     init_data_training_embedding_data()
     init_table_and_ds_embedding()
+    await asyncio.to_thread(EmbeddingModelCache.get_model)
     SQLBotLogUtil.info("✅ SQLBot 初始化完成")
     await sqlbot_xpack.core.clean_xpack_cache()
     await async_model_info()  # 异步加密已有模型的密钥和地址
@@ -145,4 +148,4 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-    # uvicorn.run("main:mcp_app", host="0.0.0.0", port=8001) # mcp server
+    uvicorn.run("main:mcp_app", host="0.0.0.0", port=8001) # mcp server

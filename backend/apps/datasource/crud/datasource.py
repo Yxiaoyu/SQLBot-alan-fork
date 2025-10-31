@@ -1,12 +1,14 @@
+import asyncio
 import datetime
 import json
+import logging
 from typing import List, Optional
+from warnings import catch_warnings
 
 from fastapi import HTTPException, BackgroundTasks
 from sqlalchemy import and_, text
 from sqlbot_xpack.permissions.models.ds_rules import DsRules
 from sqlmodel import select
-from common.core.nl2sql_session import NL2SQLSession
 
 from apps.datasource.crud.permission import get_column_permission_fields, get_row_permission_filters, is_normal_user
 from apps.datasource.embedding.table_embedding import calc_table_embedding
@@ -16,6 +18,7 @@ from apps.db.db import get_tables, get_fields, exec_sql, check_connection
 from apps.db.engine import get_engine_config, get_engine_conn, get_data_engine
 from common.core.config import settings
 from common.core.deps import SessionDep, CurrentUser, Trans
+from common.core.nl2sql_session import NL2SQLSession
 from common.utils.embedding_threads import run_save_table_embeddings, run_save_ds_embeddings
 from common.utils.utils import deepcopy_ignore_extra
 from .table import get_tables_by_ds_id
@@ -49,7 +52,8 @@ def check_status_by_id(session: SessionDep, trans: Trans, ds_id: int, is_raise: 
 
 
 def check_status(session: SessionDep, trans: Trans, ds: CoreDatasource, is_raise: bool = False):
-    return check_connection(trans, ds, is_raise)
+    connection_status = check_connection(trans, ds, is_raise)
+    return connection_status
 
 def check_external_datasource_status(session: SessionDep, trans: Trans, ds: CoreDatasource, is_raise: bool = False):
     datasource_status = True
@@ -69,98 +73,121 @@ def check_name(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDat
             and_(CoreDatasource.name == ds.name, CoreDatasource.oid == user.oid)).all()
         if ds_list is not None and len(ds_list) > 0:
             raise HTTPException(status_code=500, detail=trans('i18n_ds_name_exist'))
-            
-def _init_excel_datasource(ds_type: str, ds_id: int, background_tasks: BackgroundTasks):
+
+
+def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: CreateDatasource, background_tasks: BackgroundTasks):
+    try:
+        ds = CoreDatasource()
+        deepcopy_ignore_extra(create_ds, ds)
+        check_name(session, trans, user, ds)
+        ds.create_time = datetime.datetime.now()
+        # status = check_status(session, ds)
+        ds.create_by = user.id
+        ds.oid = user.oid if user.oid is not None else 1
+        ds.status = "Success"
+        ds.type_name = DB.get_db(ds.type).db_name
+        record = CoreDatasource(**ds.model_dump())
+        session.add(record)
+        session.flush()
+        session.refresh(record)
+        ds.id = record.id
+
+        # save tables and fields
+        _sync_table(session, ds, create_ds.tables)
+        _updateNum(session, ds)
+
+        # call external api to init datasource
+        _init_excel_datasource(session, ds.type.lower(), ds.id, background_tasks)
+        session.commit()
+        return ds
+    except Exception as e:
+        session.rollback()
+        raise
+
+
+def chooseTables(session: SessionDep, trans: Trans, id: int, tables: List[CoreTable], background_tasks: BackgroundTasks):
+    try:
+        ds = session.query(CoreDatasource).filter(CoreDatasource.id == id).first()
+        check_status(session, trans, ds, True)
+        _sync_table(session, ds, tables)
+        _updateNum(session, ds)
+
+        # call external api to init datasource
+        _init_excel_datasource(session, ds.type.lower(), ds.id, background_tasks)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
+
+
+def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource, background_tasks: BackgroundTasks):
+    try:
+        ds.id = int(ds.id)
+        check_name(session, trans, user, ds)
+        # status = check_status(session, trans, ds)
+        ds.status = "Success"
+        record = session.exec(select(CoreDatasource).where(CoreDatasource.id == ds.id)).first()
+        update_data = ds.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(record, field, value)
+        session.add(record)
+
+        run_save_ds_embeddings([ds.id])
+
+        # call external api to init datasource
+        _init_excel_datasource(session, ds.type.lower(), ds.id, background_tasks)
+        session.commit()
+        return ds
+    except Exception as e:
+        session.rollback()
+        raise
+
+def _init_excel_datasource(session: SessionDep, ds_type: str, ds_id: int, background_tasks: BackgroundTasks):
     if ds_type == "mysql":
         def inner(ds_id: int):
-            db_session = None
+            #db_session = None
             try:
-                db_session = get_data_engine()
-                ds = db_session.query(CoreDatasource).filter(CoreDatasource.id == ds_id).first()
+                #db_session = get_data_engine()
+                ds = session.query(CoreDatasource).filter(CoreDatasource.id == ds_id).first()
                 if not ds:
                     logging.error(f"Datasource with id {ds_id} not found in background task.")
                     return
                 conf = DatasourceConf(**json.loads(aes_decrypt(ds.configuration)))
                 NL2SQLSession.init_datasource(ds.name, ds.type, conf.host, conf.port, conf.username, conf.password,
-                                              conf.database)
+                                              conf.database, ds_id)
             except Exception as e:
                 logging.error(f"Error in background task to init datasource: {e}", exc_info=True)
-            finally:
-                if db_session:
-                    db_session.close()
+                raise
+            # finally:
+            #     if db_session:
+            #         db_session.close()
 
-        background_tasks.add_task(inner, ds_id)
-
-def create_ds(session: SessionDep, trans: Trans, user: CurrentUser, create_ds: CreateDatasource, background_tasks: BackgroundTasks):
-    ds = CoreDatasource()
-    deepcopy_ignore_extra(create_ds, ds)
-    check_name(session, trans, user, ds)
-    ds.create_time = datetime.datetime.now()
-    # status = check_status(session, ds)
-    ds.create_by = user.id
-    ds.oid = user.oid if user.oid is not None else 1
-    ds.status = "Success"
-    ds.type_name = DB.get_db(ds.type).db_name
-    record = CoreDatasource(**ds.model_dump())
-    session.add(record)
-    session.flush()
-    session.refresh(record)
-    ds.id = record.id
-    session.commit()
-
-    # save tables and fields
-    sync_table(session, ds, create_ds.tables)
-    updateNum(session, ds)
-
-    # call external api to init datasource
-    _init_excel_datasource(ds.type.lower(), ds.id, background_tasks)
-    return ds
-
-
-def chooseTables(session: SessionDep, trans: Trans, id: int, tables: List[CoreTable]):
-    ds = session.query(CoreDatasource).filter(CoreDatasource.id == id).first()
-    check_status(session, trans, ds, True)
-    sync_table(session, ds, tables)
-    updateNum(session, ds)
-
-
-def update_ds(session: SessionDep, trans: Trans, user: CurrentUser, ds: CoreDatasource, background_tasks: BackgroundTasks):
-    ds.id = int(ds.id)
-    check_name(session, trans, user, ds)
-    # status = check_status(session, trans, ds)
-    ds.status = "Success"
-    record = session.exec(select(CoreDatasource).where(CoreDatasource.id == ds.id)).first()
-    update_data = ds.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(record, field, value)
-    session.add(record)
-    session.commit()
-
-    run_save_ds_embeddings([ds.id])
-
-    # call external api to init datasource
-    _init_excel_datasource(ds.type.lower(), ds.id, background_tasks)
-    return ds
+        inner(ds_id)
+        #background_tasks.add_task(inner, ds_id)
 
 
 def delete_ds(session: SessionDep, id: int):
-    term = session.exec(select(CoreDatasource).where(CoreDatasource.id == id)).first()
-    if term.type == "excel":
-        # drop all tables for current datasource
-        engine = get_engine_conn()
-        conf = DatasourceConf(**json.loads(aes_decrypt(term.configuration)))
-        with engine.connect() as conn:
-            for sheet in conf.sheets:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{sheet["tableName"]}"'))
-            conn.commit()
+    try:
+        term = session.exec(select(CoreDatasource).where(CoreDatasource.id == id)).first()
+        if term.type == "excel":
+            # drop all tables for current datasource
+            engine = get_engine_conn()
+            conf = DatasourceConf(**json.loads(aes_decrypt(term.configuration)))
+            with engine.connect() as conn:
+                for sheet in conf.sheets:
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{sheet["tableName"]}"'))
+                conn.commit()
 
-    session.delete(term)
-    session.commit()
-    delete_table_by_ds_id(session, id)
-    delete_field_by_ds_id(session, id)
-    return {
-        "message": f"Datasource with ID {id} deleted successfully."
-    }
+        session.delete(term)
+        delete_table_by_ds_id(session, id)
+        delete_field_by_ds_id(session, id)
+        session.commit()
+        return {
+            "message": f"Datasource with ID {id} deleted successfully."
+        }
+    except Exception as e:
+        session.rollback()
+        raise
 
 
 def getTables(session: SessionDep, id: int):
@@ -191,7 +218,7 @@ def execSql(session: SessionDep, id: int, sql: str):
     return exec_sql(ds, sql, True)
 
 
-def sync_table(session: SessionDep, ds: CoreDatasource, tables: List[CoreTable]):
+def _sync_table(session: SessionDep, ds: CoreDatasource, tables: List[CoreTable]):
     id_list = []
     for item in tables:
         statement = select(CoreTable).where(and_(CoreTable.ds_id == ds.id, CoreTable.table_name == item.table_name))
@@ -203,7 +230,6 @@ def sync_table(session: SessionDep, ds: CoreDatasource, tables: List[CoreTable])
 
             record.table_comment = item.table_comment
             session.add(record)
-            session.commit()
         else:
             # save new table
             table = CoreTable(ds_id=ds.id, checked=True, table_name=item.table_name, table_comment=item.table_comment,
@@ -213,29 +239,26 @@ def sync_table(session: SessionDep, ds: CoreDatasource, tables: List[CoreTable])
             session.refresh(table)
             item.id = table.id
             id_list.append(table.id)
-            session.commit()
 
         # sync field
         fields = getFieldsByDs(session, ds, item.table_name)
-        sync_fields(session, ds, item, fields)
+        _sync_fields(session, ds, item, fields)
 
     if len(id_list) > 0:
         session.query(CoreTable).filter(and_(CoreTable.ds_id == ds.id, CoreTable.id.not_in(id_list))).delete(
             synchronize_session=False)
         session.query(CoreField).filter(and_(CoreField.ds_id == ds.id, CoreField.table_id.not_in(id_list))).delete(
             synchronize_session=False)
-        session.commit()
     else:  # delete all tables and fields in this ds
         session.query(CoreTable).filter(CoreTable.ds_id == ds.id).delete(synchronize_session=False)
         session.query(CoreField).filter(CoreField.ds_id == ds.id).delete(synchronize_session=False)
-        session.commit()
 
     # do table embedding
     run_save_table_embeddings(id_list)
     run_save_ds_embeddings([ds.id])
 
 
-def sync_fields(session: SessionDep, ds: CoreDatasource, table: CoreTable, fields: List[ColumnSchema]):
+def _sync_fields(session: SessionDep, ds: CoreDatasource, table: CoreTable, fields: List[ColumnSchema]):
     id_list = []
     for index, item in enumerate(fields):
         statement = select(CoreField).where(
@@ -249,7 +272,6 @@ def sync_fields(session: SessionDep, ds: CoreDatasource, table: CoreTable, field
             record.field_index = index
             record.field_type = item.fieldType
             session.add(record)
-            session.commit()
         else:
             field = CoreField(ds_id=ds.id, table_id=table.id, checked=True, field_name=item.fieldName,
                               field_type=item.fieldType, field_comment=item.fieldComment,
@@ -259,12 +281,10 @@ def sync_fields(session: SessionDep, ds: CoreDatasource, table: CoreTable, field
             session.refresh(field)
             item.id = field.id
             id_list.append(field.id)
-            session.commit()
 
     if len(id_list) > 0:
         session.query(CoreField).filter(and_(CoreField.table_id == table.id, CoreField.id.not_in(id_list))).delete(
             synchronize_session=False)
-        session.commit()
 
 
 def update_table_and_fields(session: SessionDep, data: TableObj):
@@ -278,19 +298,37 @@ def update_table_and_fields(session: SessionDep, data: TableObj):
 
 
 def updateTable(session: SessionDep, table: CoreTable):
-    update_table(session, table)
+    try:
+        update_table(session, table,  False)
 
-    # do table embedding
-    run_save_table_embeddings([table.id])
-    run_save_ds_embeddings([table.ds_id])
+        # do table embedding
+        run_save_table_embeddings([table.id])
+        run_save_ds_embeddings([table.ds_id])
+
+        # call external api to init datasource
+        ds = session.query(CoreDatasource).filter(CoreDatasource.id == table.ds_id).first()
+        _init_excel_datasource(session, ds.type.lower(), ds.id, None)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
 
 
-def updateField(session: SessionDep, field: CoreField):
-    update_field(session, field)
+def updateField(session: SessionDep, field: CoreField, background_tasks: BackgroundTasks):
+    try:
+        update_field(session, field, False)
 
-    # do table embedding
-    run_save_table_embeddings([field.table_id])
-    run_save_ds_embeddings([field.ds_id])
+        # do table embedding
+        run_save_table_embeddings([field.table_id])
+        run_save_ds_embeddings([field.ds_id])
+
+        # call external api to init datasource
+        ds = session.query(CoreDatasource).filter(CoreDatasource.id == field.ds_id).first()
+        _init_excel_datasource(session, ds.type.lower(), ds.id, background_tasks)
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise
 
 
 def preview(session: SessionDep, current_user: CurrentUser, id: int, data: TableObj):
@@ -336,16 +374,10 @@ def preview(session: SessionDep, current_user: CurrentUser, id: int, data: Table
             {where} 
             LIMIT 100"""
     elif ds.type == "oracle":
-        # sql = f"""SELECT "{'", "'.join(fields)}" FROM "{conf.dbSchema}"."{data.table.table_name}"
-        #     {where}
-        #     ORDER BY "{fields[0]}"
-        #     OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY"""
-        sql = f"""SELECT * FROM
-                    (SELECT "{'", "'.join(fields)}" FROM "{conf.dbSchema}"."{data.table.table_name}"
-                    {where} 
-                    ORDER BY "{fields[0]}")
-                    WHERE ROWNUM <= 100
-                    """
+        sql = f"""SELECT "{'", "'.join(fields)}" FROM "{conf.dbSchema}"."{data.table.table_name}"
+            {where} 
+            ORDER BY "{fields[0]}"
+            OFFSET 0 ROWS FETCH NEXT 100 ROWS ONLY"""
     elif ds.type == "ck":
         sql = f"""SELECT "{'", "'.join(fields)}" FROM "{data.table.table_name}" 
             {where} 
@@ -378,7 +410,7 @@ def fieldEnum(session: SessionDep, id: int):
     return [item.get(res.get('fields')[0]) for item in res.get('data')]
 
 
-def updateNum(session: SessionDep, ds: CoreDatasource):
+def _updateNum(session: SessionDep, ds: CoreDatasource):
     all_tables = get_tables(ds) if ds.type != 'excel' else json.loads(aes_decrypt(ds.configuration)).get('sheets')
     selected_tables = get_tables_by_ds_id(session, ds.id)
     num = f'{len(selected_tables)}/{len(all_tables)}'
@@ -389,7 +421,6 @@ def updateNum(session: SessionDep, ds: CoreDatasource):
         setattr(record, field, value)
     record.num = num
     session.add(record)
-    session.commit()
 
 
 def get_table_obj_by_ds(session: SessionDep, current_user: CurrentUser, ds: CoreDatasource) -> List[TableAndFields]:

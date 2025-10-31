@@ -115,7 +115,7 @@ class NL2SQLSession:
         raise SingleMessageError("Failed to generate SQL after retrying with a new session.")
 
     @classmethod
-    def init_datasource(cls, ds_name: str, db_type: str, host: str, port: int, user: str, password: str, database: str ):
+    def init_datasource(cls, ds_name: str, db_type: str, host: str, port: int, user: str, password: str, database: str, ds_id: int, ):
         if not settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
             raise SingleMessageError("External SQL generation service is not configured.")
         SQLBotLogUtil.info(
@@ -132,6 +132,7 @@ class NL2SQLSession:
                 "user": user,
                 "password": password,
                 "database": database,
+                "ds_id": ds_id,
             }
             SQLBotLogUtil.info(f"Request payload for external service: {request_data}")
 
@@ -142,14 +143,15 @@ class NL2SQLSession:
 
             response_data = response.json()
             SQLBotLogUtil.info(f"Response from external service: {response_data}")
-
+            if not response_data.get("success"):
+                raise SingleMessageError(response_data.get("message"))
         except requests.exceptions.RequestException as e:
             error_msg = f"Failed to call external service to generate SQL: {e}"
             SQLBotLogUtil.error(error_msg)
             raise SingleMessageError(error_msg) from e
         except Exception as e:
             SQLBotLogUtil.error(f"An error occurred during call external service to generate SQL: {e}")
-            raise e
+            raise
 
 
     @classmethod

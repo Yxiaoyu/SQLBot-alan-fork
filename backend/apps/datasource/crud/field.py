@@ -11,9 +11,10 @@ def get_fields_by_table_id(session: SessionDep, id: int):
     return session.query(CoreField).filter(CoreField.table_id == id).order_by(CoreField.field_index.asc()).all()
 
 
-def update_field(session: SessionDep, item: CoreField):
+def update_field(session: SessionDep, item: CoreField, auto_commit: bool = True):
     record = session.query(CoreField).filter(CoreField.id == item.id).first()
     record.checked = item.checked
     record.custom_comment = item.custom_comment
     session.add(record)
-    session.commit()
+    if auto_commit:
+       session.commit()

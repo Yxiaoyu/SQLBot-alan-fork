@@ -22,12 +22,13 @@ def get_tables_by_ds_id(session: SessionDep, id: int):
         CoreTable.table_name.asc()).all()
 
 
-def update_table(session: SessionDep, item: CoreTable):
+def update_table(session: SessionDep, item: CoreTable, auto_commit: bool = True):
     record = session.query(CoreTable).filter(CoreTable.id == item.id).first()
     record.checked = item.checked
     record.custom_comment = item.custom_comment
     session.add(record)
-    session.commit()
+    if auto_commit:
+       session.commit()
 
 
 def run_fill_empty_table_and_ds_embedding(session_maker):
