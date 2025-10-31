@@ -59,7 +59,7 @@ const tinymceId = 'vue-tinymce-' + +new Date() + ((Math.random() * 1000).toFixed
 const init = reactive({
   base_url: '/tinymce', // 指向 public/tinymce 目录
   suffix: '.min',
-  selector: tinymceId,
+  // selector: tinymceId,
   language: 'zh_CN',
   skin: 'oxide',
   plugins: 'link letterspacing', // 插件
