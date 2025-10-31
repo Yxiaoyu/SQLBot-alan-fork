@@ -394,6 +394,14 @@ const next = debounce(async (formEl: FormInstance | undefined) => {
 }, 300)
 
 const preview = debounce(() => {
+  if (props.activeStep === 2) {
+    // 在返回上一步时清空已选表相关状态，避免保留旧的选中项
+    checkTableList.value = []
+    checkList.value = []
+    checkAll.value = false
+    isIndeterminate.value = false
+    keywords.value = ''
+  }
   emit('changeActiveStep', props.activeStep - 1)
 }, 200)
 
