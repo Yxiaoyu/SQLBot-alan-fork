@@ -286,7 +286,7 @@ template:
           我们目前的情况适用于单指标、多分类的场景（展示table除外），若SQL中包含多指标列，请选择一个最符合提问情况的指标作为值轴
         </rule>
         <rule>
-          如果SQL查询结果只有一个总计数值（例如 SELECT COUNT(*)...），你应该生成一个表格(table)来展示这个数值。JSON格式应为：{"type":"table", "title": "查询结果标题", "columns": [{"name":"结果", "value": "SQL查询的第一列(通常是COUNT(*)的结果)"}]}
+          如果SQL查询结果只有一个总计数值（例如 SELECT COUNT(*)...），你应该生成一个表格(table)来展示这个数值。JSON格式应为：{{"type":"table", "title": "查询结果标题", "columns": [{{"name":"结果", "value": "SQL查询的第一列(通常是COUNT(*)的结果)"}}]}}
         </rule>
         <rule>
           如果你无法根据提供的内容生成合适的JSON配置，则返回：{{"type":"error", "reason": "抱歉，我无法生成合适的图表配置"}}
