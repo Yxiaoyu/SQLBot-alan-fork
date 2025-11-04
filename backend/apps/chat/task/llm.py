@@ -1170,10 +1170,10 @@ class LLMService:
             execute_sql=time.time()
             result = self.execute_sql(sql=real_execute_sql)
             SQLBotLogUtil.info(f"执行sql耗时 in {time.time() - execute_sql:.2f} seconds")
-            result = self.transfer_sql_data(session=_session, sql_result=result, sql_query=real_execute_sql)
             save_sql_data = time.time()
+            #result = self.transfer_sql_data(session=_session, sql_result=result, sql_query=real_execute_sql)
+            SQLBotLogUtil.info(f"转换sql结果耗时 in {time.time() - save_sql_data:.2f} seconds")
             self.save_sql_data(session=_session, data_obj=result)
-            SQLBotLogUtil.info(f"保存sql结果耗时 in {time.time() - save_sql_data:.2f} seconds")
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': 'execute-success', 'type': 'sql-data'}).decode() + '\n\n'
             if not stream:
