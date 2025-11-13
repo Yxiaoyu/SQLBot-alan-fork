@@ -2,6 +2,7 @@
 from threading import Lock
 from typing import Dict
 
+import orjson
 import requests
 
 from common.core.config import settings
@@ -58,33 +59,33 @@ class NL2SQLSession:
             raise e
 
     @classmethod
-    def generate_sql(cls, question: str, ds_name: str, ds_type: str, user_id: str, oid: int, ds_id: int) -> dict:
+    def _call_external_service(cls, endpoint: str, payload: dict, stream: bool = False) -> requests.Response:
         """
-        Generates SQL by calling an external service, with retry logic for expired sessions.
+        A helper method to call the external SQL generation service, handling retries and session management.
         """
         if not settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
             raise SingleMessageError("External SQL generation service is not configured.")
-        SQLBotLogUtil.info(f"Calling external SQL generation service to generate SQL: {settings.EXTERNAL_SQL_GENERATION_SERVICE_URL}")
+
+        url = settings.EXTERNAL_SQL_GENERATION_SERVICE_URL + endpoint
+        user_id = payload.get("user_id")
+        ds_name = payload.get("db_id")
+        ds_type = payload.get("db_type")
 
         for attempt in range(2):
             session_id = cls._get_session(ds_name, ds_type, user_id)
+            payload["session_id"] = session_id
+
+            SQLBotLogUtil.info(f"Request payload for external service (attempt {attempt + 1}): {payload}")
+
             try:
-                # 准备请求体
-                request_data = {
-                    "question": question,
-                    "db_id": ds_name,  # 使用数据源名称作为 db_id
-                    "db_type": ds_type,  # 使用数据源类型作为 db_type
-                    "db_env": settings.EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV,
-                    "user_id": user_id,
-                    "oid": oid,
-                    "datasource_id": ds_id,
-                    "session_id": session_id,
-                }
-                SQLBotLogUtil.info(f"Request payload for external service (attempt {attempt + 1}): {request_data}")
+                response = requests.post(
+                    url,
+                    json=payload,
+                    timeout=settings.EXTERNAL_SQL_GENERATION_SERVICE_TIME_OUT,
+                    stream=stream
+                )
 
-                response = requests.post(settings.EXTERNAL_SQL_GENERATION_SERVICE_URL + "/nl2sql/chat", json=request_data, timeout=settings.EXTERNAL_SQL_GENERATION_SERVICE_TIME_OUT)
-
-                # Check for invalid session error
+                # Check for invalid session error to trigger a retry
                 if response.status_code == 400 and "Invalid or expired session ID" in response.text:
                     SQLBotLogUtil.warning(f"Invalid session ID for user {user_id}. Deleting and retrying...")
                     with sessions_lock:
@@ -93,26 +94,80 @@ class NL2SQLSession:
                     continue  # Retry with a new session
 
                 response.raise_for_status()
-
-                response_data = response.json()
-                SQLBotLogUtil.info(f"Response from external service: {response_data}")
-
-                is_generated_sql = response_data.get("is_generated_sql", False)
-                final_answer = response_data.get("final_answer", '')
-                question = response_data.get("question", '')
-
-                return {"is_generated_sql": is_generated_sql, "final_answer": final_answer, "question": question}
+                return response
 
             except requests.exceptions.RequestException as e:
-                error_msg = f"Failed to call external service to generate SQL: {e}"
+                error_msg = f"Failed to call external service endpoint {endpoint}: {e}"
                 SQLBotLogUtil.error(error_msg)
                 raise SingleMessageError(error_msg) from e
-            except Exception as e:
-                SQLBotLogUtil.error(f"An error occurred during call external service to generate SQL: {e}")
-                raise e
 
-        # If all retries fail
-        raise SingleMessageError("Failed to generate SQL after retrying with a new session.")
+        raise SingleMessageError(f"Failed to call external service at {endpoint} after retrying with a new session.")
+
+    @classmethod
+    def generate_sql(cls, question: str, ds_name: str, ds_type: str, user_id: str, oid: int, ds_id: int):
+        """
+        Generates SQL by calling an external service, with retry logic for expired sessions.
+        """
+        if not settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
+            raise SingleMessageError("External SQL generation service is not configured.")
+        SQLBotLogUtil.info(f"Calling external SQL generation service (non-stream): /nl2sql/chat")
+
+        request_data = {
+            "question": question,
+            "db_id": ds_name,
+            "db_type": ds_type,
+            "db_env": settings.EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV,
+            "user_id": user_id,
+            "oid": oid,
+            "datasource_id": ds_id,
+        }
+
+        response = cls._call_external_service("/nl2sql/chat", request_data, stream=False)
+        response_data = response.json()
+        SQLBotLogUtil.info(f"Response from external service: {response_data}")
+        
+        # 模拟流式响应，封装成一个只包含 final_result 的事件
+        final_event = {"event": "final_result", "data": response_data}
+        # 使用 orjson 序列化并返回一个生成器
+        yield orjson.dumps(final_event).decode('utf-8')
+
+    @classmethod
+    def generate_sql_stream(cls, question: str, ds_name: str, ds_type: str, user_id: str, oid: int, ds_id: int):
+        """
+        Generates SQL by calling an external service with streaming, with retry logic for expired sessions.
+        """
+        if not settings.EXTERNAL_SQL_GENERATION_SERVICE_URL:
+            raise SingleMessageError("External SQL generation service is not configured.")
+        SQLBotLogUtil.info(f"Calling external SQL generation service (stream): /nl2sql/chat-stream")
+
+        request_data = {
+            "question": question,
+            "db_id": ds_name,
+            "db_type": ds_type,
+            "db_env": settings.EXTERNAL_SQL_GENERATION_SERVICE_DB_ENV,
+            "user_id": user_id,
+            "oid": oid,
+            "datasource_id": ds_id,
+        }
+
+        response = cls._call_external_service("/nl2sql/chat-stream", request_data, stream=True)
+
+        try:
+            for line in response.iter_lines():
+                if line:
+                    decoded_line = line.decode('utf-8')
+                    if decoded_line.startswith('data:'):
+                        try:
+                            json_data_str = decoded_line[len('data:'):].strip()
+                            if json_data_str:
+                                # llm.py expects a JSON string, not a parsed dict.
+                                yield json_data_str
+                                continue # Avoid yielding the same line twice
+                        except orjson.JSONDecodeError as e:
+                            SQLBotLogUtil.error(f"Error processing stream line: {decoded_line}, error: {e}")
+                            raise SingleMessageError(f"Error processing stream from external service: {e}") from e
+        finally:
+            response.close()  # Ensure the connection is closed
 
     @classmethod
     def init_datasource(cls, ds_name: str, db_type: str, host: str, port: int, user: str, password: str, database: str, ds_id: int, ):
@@ -188,4 +243,3 @@ class NL2SQLSession:
         except Exception as e:
             SQLBotLogUtil.error(f"An error occurred during call external service to generate SQL: {e}")
             raise e
-

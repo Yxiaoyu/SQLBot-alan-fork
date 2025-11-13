@@ -547,7 +547,7 @@ class LLMService:
         # append current question
         self.sql_message.append(HumanMessage(
             self.chat_question.sql_user_question(current_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))))
-
+    
         self.current_logs[OperationEnum.GENERATE_SQL] = start_log(session=_session,
                                                                   ai_modal_id=self.chat_question.ai_modal_id,
                                                                   ai_modal_name=self.chat_question.ai_modal_name,
@@ -562,18 +562,51 @@ class LLMService:
 
         if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL and self.ds.type.lower() == 'mysql':
             SQLBotLogUtil.info(
-                f"Calling external SQL generation service: {settings.EXTERNAL_SQL_GENERATION_SERVICE_URL}")
+                f"Calling external SQL generation service with stream: {settings.EXTERNAL_SQL_GENERATION_SERVICE_URL}")
+            
             ds_id = self.ds.id if isinstance(self.ds, CoreDatasource) else None
-            response : dict = NL2SQLSession.generate_sql(self.chat_question.question, self.ds.name, self.ds.type, self.current_user.account, self.current_user.oid,  ds_id)
-            # 构造成与原逻辑兼容的格式
-
-            if response.get("is_generated_sql"):
-                full_sql_text = orjson.dumps(
-                    {"success": response.get("is_generated_sql"), "sql": response.get("final_answer")}).decode()
+            
+            # 统一调用接口，根据配置决定调用流式或非流式函数
+            if self.config.additional_params.get("streaming", "True"):
+                stream_response = NL2SQLSession.generate_sql_stream(self.chat_question.question, self.ds.name, self.ds.type,
+                                                                    self.current_user.account, self.current_user.oid, ds_id)
             else:
-                full_sql_text = orjson.dumps(
-                    {"success": response.get("is_generated_sql"), "message": response.get("final_answer")}).decode()
-            yield {'content': full_sql_text, 'enhanced_question': response.get("question"), 'reasoning_content': ''}
+                stream_response = NL2SQLSession.generate_sql(self.chat_question.question, self.ds.name, self.ds.type,
+                                                             self.current_user.account, self.current_user.oid, ds_id)
+
+            final_result_data = None
+            for line in stream_response:
+                try:
+                    data = orjson.loads(line)
+                    event = data.get("event")
+                    event_data = data.get("data")
+
+                    if event == "reasoning_content":
+                        full_thinking_text += event_data
+                        yield {'content': '', 'reasoning_content': event_data, 'event': event}
+                    elif event == "final_result":
+                        final_result_data = event_data
+                    elif event == "error":
+                        SQLBotLogUtil.error(f"External service returned error: {event_data}")
+                        raise SingleMessageError("生成sql失败，请联系管理员")
+                except orjson.JSONDecodeError:
+                    SQLBotLogUtil.warning(f"Could not parse json from stream: {line}")
+                    continue
+
+            if final_result_data:
+                is_generated_sql = final_result_data.get("is_generated_sql")
+                # 修复 reasoning_content 丢失的 bug
+                full_thinking_text += final_result_data.get("reasoning_content", "")
+                if is_generated_sql:
+                    full_sql_text = orjson.dumps(
+                        {"success": True, "sql": final_result_data.get("final_answer")}).decode()
+                else:
+                    full_sql_text = orjson.dumps(
+                        {"success": False, "message": final_result_data.get("final_answer")}).decode()
+                yield {'content': full_sql_text,
+                       'enhanced_question': final_result_data.get("question"),
+                       'event':'final_result',
+                       'reasoning_content': '',}
         else:
             # 原始的 LLM 调用逻辑
             res = process_stream(self.llm.stream(self.sql_message), token_usage)
@@ -728,13 +761,27 @@ class LLMService:
         full_thinking_text = ''
         full_chart_text = ''
         token_usage = {}
+        
+        # 状态机: 'reasoning' -> 'content'
+        parsing_state = 'reasoning'
+        stop_marker = "```"
         res = process_stream(self.llm.stream(self.chart_message), token_usage)
         for chunk in res:
             if chunk.get('content'):
                 full_chart_text += chunk.get('content')
             if chunk.get('reasoning_content'):
                 full_thinking_text += chunk.get('reasoning_content')
-            yield chunk
+            content = chunk.get('content', '')
+            if parsing_state == 'reasoning':
+                if stop_marker in content:
+                    # 找到了停止标记，切换到暂停状态
+                    yield {'content': content, 'reasoning_content': ''}
+                    parsing_state = 'content'
+                else:
+                    # 未找到停止标记，直接输出思考过程
+                    yield {'content': '', 'reasoning_content': content}
+            else:
+                yield {'content': content, 'reasoning_content': ''}
 
         self.chart_message.append(AIMessage(full_chart_text))
 
@@ -1078,17 +1125,26 @@ class LLMService:
             generate_sql=time.time()
             sql_res = self.generate_sql(_session)
             full_sql_text = ''
-            chunks_to_yield = []
             enhanced_question = ''
+
             for chunk in sql_res:
+                # 累加文本和增强问题
                 full_sql_text += chunk.get('content', '')
                 enhanced_question += chunk.get('enhanced_question', '')
+
                 if in_chat:
-                    chunks_to_yield.append('data:' + orjson.dumps(
+                    # 对于思考过程或原始LLM的块，直接实时返回
+                    yield 'data:' + orjson.dumps(
                         {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
-                         'type': 'sql-result'}).decode() + '\n\n')
+                         'type': 'sql-result'}).decode() + '\n\n'
+
             SQLBotLogUtil.info(f"生成sql耗时 in {time.time() - generate_sql:.2f} seconds")
-            if settings.EXTERNAL_SQL_GENERATION_SERVICE_URL and self.ds.type.lower() == 'mysql':
+
+            if in_chat:
+                yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'sql generated'}).decode() + '\n\n'
+
+            # 处理失败情况
+            if full_sql_text:
                 data = orjson.loads(full_sql_text)
                 is_generated_sql = data.get('success')
                 final_answer = data.get('message')
@@ -1101,10 +1157,6 @@ class LLMService:
                     self.save_error(session=_session, message=final_answer)
                     return
 
-            if in_chat:
-                for chunk_to_yield in chunks_to_yield:
-                    yield chunk_to_yield
-                yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'sql generated'}).decode() + '\n\n'
             # filter sql
             SQLBotLogUtil.info(full_sql_text)
 
@@ -1207,7 +1259,7 @@ class LLMService:
                 return
 
             # generate chart
-            generate_chart=time.time()
+            generate_chart = time.time()
             chart_res = self.generate_chart(_session, chart_type, enhanced_question)
             full_chart_text = ''
             for chunk in chart_res:
@@ -1222,11 +1274,40 @@ class LLMService:
 
             # filter chart
             SQLBotLogUtil.info(full_chart_text)
-            check_save_chart=time.time()
+            check_save_chart = time.time()
             chart = self.check_save_chart(session=_session, res=full_chart_text)
             SQLBotLogUtil.info(f"保存chart结果耗时 in {time.time() - check_save_chart:.2f} seconds")
             SQLBotLogUtil.info(chart)
-
+            # max_retries = 3
+            # chart = None
+            # is_first_chart_attempt = True
+            # generate_chart_start_time = time.time()
+            # for attempt in range(max_retries):
+            #     try:
+            #         chart_res = self.generate_chart(_session, chart_type, enhanced_question)
+            #         full_chart_text = ''
+            #         for chunk in chart_res:
+            #             full_chart_text += chunk.get('content')
+            #             if in_chat:
+            #                 reasoning_content = chunk.get('reasoning_content') if is_first_chart_attempt else ''
+            #                 yield 'data:' + orjson.dumps(
+            #                     {'content': chunk.get('content'), 'reasoning_content': reasoning_content,
+            #                      'type': 'chart-result'}).decode() + '\n\n'
+            #
+            #         is_first_chart_attempt = False  # 后续重试不再发送思考过程
+            #         if in_chat:
+            #             yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'chart generated'}).decode() + '\n\n'
+            #
+            #         # filter chart
+            #         SQLBotLogUtil.info(full_chart_text)
+            #         chart = self.check_save_chart(session=_session, res=full_chart_text)
+            #         SQLBotLogUtil.info(chart)
+            #         break  # 成功则跳出循环
+            #     except Exception as e:
+            #         SQLBotLogUtil.warning(f"第 {attempt + 1} 次尝试生成和校验图表失败: {e}")
+            #         if attempt + 1 >= max_retries:
+            #             raise  # 最后一次尝试失败，则抛出异常
+            # SQLBotLogUtil.info(f"生成chart耗时in {time.time() - generate_chart_start_time:.2f} seconds")
             if not stream:
                 json_result['chart'] = chart
 
@@ -1410,10 +1491,10 @@ class LLMService:
                 match_ds = any(item.get("id") == _ds.id for item in _ds_list)
                 if not match_ds:
                     type = self.current_assistant.type
-                    msg = f"[please check ds list and public ds list]" if type == 0 else f"[please check ds api]"
+                    msg = f"[请检查助手配置的公共数据源列表]" if type == 0 else f"[please check ds api]"
                     raise SingleMessageError(msg)
             except Exception as e:
-                raise SingleMessageError(f"ds is invalid [{str(e)}]")
+                raise SingleMessageError(f"数据源无效 [{str(e)}]")
 
 
 def execute_sql_with_db(db: SQLDatabase, sql: str) -> str:
