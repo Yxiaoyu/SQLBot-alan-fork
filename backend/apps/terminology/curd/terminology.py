@@ -438,6 +438,9 @@ def save_embeddings(session_maker, ids: List[int]):
         session = session_maker()
         _list = session.query(Terminology).filter(or_(Terminology.id.in_(ids), Terminology.pid.in_(ids))).all()
 
+        if not _list:
+            return
+
         _words_list = [item.word for item in _list]
 
         model = EmbeddingModelCache.get_model()
@@ -450,8 +453,9 @@ def save_embeddings(session_maker, ids: List[int]):
             session.execute(stmt)
             session.commit()
 
-    except Exception:
+    except Exception as e:
         traceback.print_exc()
+        raise e
     finally:
         session_maker.remove()
 
@@ -563,12 +567,17 @@ def select_terminology_by_word(session: SessionDep, word: str, oid: int, datasou
     if len(_ids) == 0:
         return []
 
-    t_list = session.query(Terminology.id, Terminology.pid, Terminology.word, Terminology.description).filter(
-        or_(Terminology.id.in_(_ids), Terminology.pid.in_(_ids))).all()
+    # 按 pid 是否为 NULL 排序，确保父节点在前，这样可以优先获取 description
+    t_list = session.query(Terminology.id, Terminology.pid, Terminology.word, Terminology.description) \
+        .filter(or_(Terminology.id.in_(_ids), Terminology.pid.in_(_ids))) \
+        .order_by(Terminology.pid.is_(None).desc()).all()
     for row in t_list:
         pid = str(row.pid) if row.pid is not None else str(row.id)
         if _map.get(pid) is None:
             _map[pid] = {'words': [], 'description': row.description}
+        elif row.description is not None:
+            # 如果后续行（通常是父行）有描述，则更新它
+            _map[pid]['description'] = row.description
         _map[pid]['words'].append(row.word)
 
     _results: list[dict] = []
