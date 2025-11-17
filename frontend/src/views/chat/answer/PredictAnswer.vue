@@ -149,6 +149,8 @@ const sendMessage = async () => {
               return
             }
 
+            emits('scrollBottom')
+
             switch (data.type) {
               case 'id':
                 currentRecord.id = data.id

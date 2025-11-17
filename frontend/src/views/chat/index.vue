@@ -338,6 +338,7 @@
                     :current-chat-id="currentChatId"
                     :loading="isTyping"
                     :message="message"
+                    @scroll-bottom="scrollToBottom"
                     @finish="onAnalysisAnswerFinish"
                     @error="onAnalysisAnswerError"
                     @stop="onChatStop"
@@ -455,7 +456,7 @@ import { useAssistantStore } from '@/stores/assistant'
 import { onClickOutside } from '@vueuse/core'
 import { useAppearanceStoreWithOut } from '@/stores/appearance'
 import { useUserStore } from '@/stores/user'
-import { debounce } from 'lodash-es'
+import { throttle } from 'lodash-es'
 
 import router from '@/router'
 const userStore = useUserStore()
@@ -493,7 +494,8 @@ const chatListRef = ref()
 const innerRef = ref()
 const chatCreatorRef = ref()
 
-const scrollToBottom = debounce(() => {
+/** 150 毫秒执行一次的触底函数 */
+const scrollToBottom = throttle(() => {
   if (scrolling) return
   nextTick(() => {
     chatListRef.value?.scrollTo({
@@ -501,7 +503,7 @@ const scrollToBottom = debounce(() => {
       behavior: 'smooth',
     })
   })
-}, 300)
+}, 150)
 
 const loading = ref<boolean>(false)
 const chatList = ref<Array<ChatInfo>>([])
@@ -851,6 +853,7 @@ async function clickAnalysis(id?: number) {
   currentRecord.analysis = ''
 
   currentChat.value.records.push(currentRecord)
+  scrollToBottom()
 
   nextTick(async () => {
     const index = currentChat.value.records.length - 1
@@ -905,6 +908,7 @@ async function clickPredict(id?: number) {
   currentRecord.predict_data = ''
 
   currentChat.value.records.push(currentRecord)
+  scrollToBottom()
 
   nextTick(async () => {
     const index = currentChat.value.records.length - 1

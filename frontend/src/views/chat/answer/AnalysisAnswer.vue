@@ -23,6 +23,7 @@ const props = withDefaults(
 const emits = defineEmits([
   'finish',
   'error',
+  'scrollBottom',
   'stop',
   'update:loading',
   'update:chatList',
@@ -147,6 +148,8 @@ const sendMessage = async () => {
               _loading.value = false
               return
             }
+
+            emits('scrollBottom')
 
             switch (data.type) {
               case 'id':
