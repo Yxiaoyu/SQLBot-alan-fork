@@ -199,16 +199,16 @@ class LLMService:
         # add sys prompt
         self.chart_message.append(SystemMessage(content=self.chat_question.chart_sys_question()))
 
-        if last_chart_messages is not None and len(last_chart_messages) > 0:
-            # limit count
-            for last_chart_message in last_chart_messages:
-                _msg: BaseMessage
-                if last_chart_message.get('type') == 'human':
-                    _msg = HumanMessage(content=last_chart_message.get('content'))
-                    self.chart_message.append(_msg)
-                elif last_chart_message.get('type') == 'ai':
-                    _msg = AIMessage(content=last_chart_message.get('content'))
-                    self.chart_message.append(_msg)
+        # if last_chart_messages is not None and len(last_chart_messages) > 0:
+        #     # limit count
+        #     for last_chart_message in last_chart_messages:
+        #         _msg: BaseMessage
+        #         if last_chart_message.get('type') == 'human':
+        #             _msg = HumanMessage(content=last_chart_message.get('content'))
+        #             self.chart_message.append(_msg)
+        #         elif last_chart_message.get('type') == 'ai':
+        #             _msg = AIMessage(content=last_chart_message.get('content'))
+        #             self.chart_message.append(_msg)
 
         self.data_transfer_message = []
         # add sys prompt
@@ -599,7 +599,7 @@ class LLMService:
                 full_thinking_text += final_result_data.get("reasoning_content", "")
                 if is_generated_sql:
                     full_sql_text = orjson.dumps(
-                        {"success": True, "sql": final_result_data.get("final_answer")}).decode()
+                        {"success": True, "sql": final_result_data.get("final_answer"), "tables": final_result_data.get("tables")}).decode()
                 else:
                     full_sql_text = orjson.dumps(
                         {"success": False, "message": final_result_data.get("final_answer")}).decode()
@@ -849,12 +849,41 @@ class LLMService:
 
         return sql
 
+    def  _validate_chart_format(self, chart: Dict[str, Any]):
+        """
+        Validate the format of the chart configuration based on its type.
+        """
+        chart_type = chart.get('type')
+        if not chart_type:
+            raise SingleMessageError("Chart configuration is missing 'type' field.")
+
+        if chart_type == 'table':
+            if not (isinstance(chart.get('columns'), list) and len(chart.get('columns')) > 0):
+                raise SingleMessageError("Invalid table chart: 'columns' must be a non-empty list.")
+            for col in chart.get('columns'):
+                if not ('name' in col and 'value' in col):
+                    raise SingleMessageError("Invalid table chart: each column must have 'name' and 'value'.")
+        elif chart_type in ['column', 'bar', 'line']:
+            axis = chart.get('axis')
+            if not isinstance(axis, dict):
+                raise SingleMessageError(f"Invalid {chart_type} chart: 'axis' must be an object.")
+            if not (axis.get('x') and isinstance(axis.get('x'), dict) and 'value' in axis.get('x') and 'name' in axis.get('x')):
+                raise SingleMessageError(f"Invalid {chart_type} chart: 'axis.x.value' and 'axis.x.name' is required.")
+            if not (axis.get('y') and isinstance(axis.get('y'), dict) and 'value' in axis.get('y') and 'name' in axis.get('y')):
+                raise SingleMessageError(f"Invalid {chart_type} chart: 'axis.y.value' and 'axis.y.name' is required.")
+        elif chart_type == 'pie':
+            axis = chart.get('axis')
+            if not isinstance(axis, dict):
+                raise SingleMessageError("Invalid pie chart: 'axis' must be an object.")
+            if not (axis.get('y') and isinstance(axis.get('y'), dict) and 'value' in axis.get('y') and 'name' in axis.get('y')):
+                raise SingleMessageError("Invalid pie chart: 'axis.y.value' and 'axis.y.name' is required.")
+            if not (axis.get('series') and isinstance(axis.get('series'), dict) and 'value' in axis.get('series') and 'name' in axis.get('series')):
+                raise SingleMessageError("Invalid pie chart: 'axis.series.value' and 'axis.series.name' is required.")
+        else:
+            raise SingleMessageError(f"Unsupported or invalid chart type: {chart_type}")
+
     def check_save_chart(self, session: Session, res: str) -> Dict[str, Any]:
 
-        json_str = extract_nested_json(res)
-        if json_str is None:
-            raise SingleMessageError(orjson.dumps({'message': 'Cannot parse chart config from answer',
-                                                   'traceback': "Cannot parse chart config from answer:\n" + res}).decode())
         data: dict
 
         chart: Dict[str, Any] = {}
@@ -862,6 +891,10 @@ class LLMService:
         error = False
 
         try:
+            json_str = extract_nested_json(res)
+            if json_str is None:
+                raise SingleMessageError(orjson.dumps({'message': 'Cannot parse chart config from answer',
+                                                       'traceback': "Cannot parse chart config from answer:\n" + res}).decode())
             data = orjson.loads(json_str)
             if data['type'] and data['type'] != 'error':
                 # todo type check
@@ -878,14 +911,18 @@ class LLMService:
                         chart.get('axis').get('series')['value'] = chart.get('axis').get('series').get('value').lower()
             elif data['type'] == 'error':
                 message = data['reason']
+                chart = data
                 error = True
             else:
                 raise Exception('Chart is empty')
-        except Exception:
-            error = True
-            message = orjson.dumps({'message': 'Cannot parse chart config from answer',
-                                    'traceback': "Cannot parse chart config from answer:\n" + res}).decode()
 
+            # Only validate if parsing was successful and it's not an error type from LLM
+            if not error:
+                self._validate_chart_format(chart)
+
+        except Exception as e:
+            error = True
+            message = str(e)
         if error:
             raise SingleMessageError(message)
 
@@ -1259,55 +1296,55 @@ class LLMService:
                 return
 
             # generate chart
-            generate_chart = time.time()
-            chart_res = self.generate_chart(_session, chart_type, enhanced_question)
-            full_chart_text = ''
-            for chunk in chart_res:
-                full_chart_text += chunk.get('content')
-                if in_chat:
-                    yield 'data:' + orjson.dumps(
-                        {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
-                         'type': 'chart-result'}).decode() + '\n\n'
-            SQLBotLogUtil.info(f"生成chart耗时 in {time.time() - generate_chart:.2f} seconds")
-            if in_chat:
-                yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'chart generated'}).decode() + '\n\n'
+            # generate_chart = time.time()
+            # chart_res = self.generate_chart(_session, chart_type, enhanced_question)
+            # full_chart_text = ''
+            # for chunk in chart_res:
+            #     full_chart_text += chunk.get('content')
+            #     if in_chat:
+            #         yield 'data:' + orjson.dumps(
+            #             {'content': chunk.get('content'), 'reasoning_content': chunk.get('reasoning_content'),
+            #              'type': 'chart-result'}).decode() + '\n\n'
+            # SQLBotLogUtil.info(f"生成chart耗时 in {time.time() - generate_chart:.2f} seconds")
+            # if in_chat:
+            #     yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'chart generated'}).decode() + '\n\n'
+            #
+            # # filter chart
+            # SQLBotLogUtil.info(full_chart_text)
+            # check_save_chart = time.time()
+            # chart = self.check_save_chart(session=_session, res=full_chart_text)
+            # SQLBotLogUtil.info(f"保存chart结果耗时 in {time.time() - check_save_chart:.2f} seconds")
+            # SQLBotLogUtil.info(chart)
+            max_retries = 3
+            chart = None
+            is_first_chart_attempt = True
+            generate_chart_start_time = time.time()
+            for attempt in range(max_retries):
+                try:
+                    chart_res = self.generate_chart(_session, chart_type, enhanced_question)
+                    full_chart_text = ''
+                    for chunk in chart_res:
+                        full_chart_text += chunk.get('content')
+                        if in_chat:
+                            reasoning_content = chunk.get('reasoning_content') if is_first_chart_attempt else ''
+                            yield 'data:' + orjson.dumps(
+                                {'content': chunk.get('content'), 'reasoning_content': reasoning_content,
+                                 'type': 'chart-result'}).decode() + '\n\n'
 
-            # filter chart
-            SQLBotLogUtil.info(full_chart_text)
-            check_save_chart = time.time()
-            chart = self.check_save_chart(session=_session, res=full_chart_text)
-            SQLBotLogUtil.info(f"保存chart结果耗时 in {time.time() - check_save_chart:.2f} seconds")
-            SQLBotLogUtil.info(chart)
-            # max_retries = 3
-            # chart = None
-            # is_first_chart_attempt = True
-            # generate_chart_start_time = time.time()
-            # for attempt in range(max_retries):
-            #     try:
-            #         chart_res = self.generate_chart(_session, chart_type, enhanced_question)
-            #         full_chart_text = ''
-            #         for chunk in chart_res:
-            #             full_chart_text += chunk.get('content')
-            #             if in_chat:
-            #                 reasoning_content = chunk.get('reasoning_content') if is_first_chart_attempt else ''
-            #                 yield 'data:' + orjson.dumps(
-            #                     {'content': chunk.get('content'), 'reasoning_content': reasoning_content,
-            #                      'type': 'chart-result'}).decode() + '\n\n'
-            #
-            #         is_first_chart_attempt = False  # 后续重试不再发送思考过程
-            #         if in_chat:
-            #             yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'chart generated'}).decode() + '\n\n'
-            #
-            #         # filter chart
-            #         SQLBotLogUtil.info(full_chart_text)
-            #         chart = self.check_save_chart(session=_session, res=full_chart_text)
-            #         SQLBotLogUtil.info(chart)
-            #         break  # 成功则跳出循环
-            #     except Exception as e:
-            #         SQLBotLogUtil.warning(f"第 {attempt + 1} 次尝试生成和校验图表失败: {e}")
-            #         if attempt + 1 >= max_retries:
-            #             raise  # 最后一次尝试失败，则抛出异常
-            # SQLBotLogUtil.info(f"生成chart耗时in {time.time() - generate_chart_start_time:.2f} seconds")
+                    is_first_chart_attempt = False  # 后续重试不再发送思考过程
+                    if in_chat:
+                        yield 'data:' + orjson.dumps({'type': 'info', 'msg': 'chart generated'}).decode() + '\n\n'
+
+                    # filter chart
+                    SQLBotLogUtil.info(full_chart_text)
+                    chart = self.check_save_chart(session=_session, res=full_chart_text)
+                    SQLBotLogUtil.info(chart)
+                    break  # 成功则跳出循环
+                except Exception as e:
+                    SQLBotLogUtil.warning(f"Attempt {attempt + 1} to generate and validate chart failed: {e}")
+                    if attempt + 1 >= max_retries:
+                        raise  # 最后一次尝试失败，则抛出异常
+            SQLBotLogUtil.info(f"Generating chart took {time.time() - generate_chart_start_time:.2f} seconds")
             if not stream:
                 json_result['chart'] = chart
 
@@ -1362,7 +1399,7 @@ class LLMService:
                         json_result['image_url'] = image_url
 
             if not stream:
-                yield json_result
+                yield orjson.dumps(json_result).decode()
             SQLBotLogUtil.info(f"整个问题处理耗时 in {time.time() - start_time:.2f} seconds")
         except Exception as e:
             traceback.print_exc()
@@ -1381,13 +1418,15 @@ class LLMService:
                 self.save_error(session=_session, message=error_msg)
             if in_chat:
                 yield 'data:' + orjson.dumps({'content': error_msg, 'type': 'error'}).decode() + '\n\n'
+                # 流式结束后，也发送 finish 信号
+                yield 'data:' + orjson.dumps({'type': 'finish'}).decode() + '\n\n'
             else:
                 if stream:
                     yield f'> &#x274c; **ERROR**\n\n> \n\n> {error_msg}。'
                 else:
                     json_result['success'] = False
                     json_result['message'] = error_msg
-                    yield json_result
+                    yield orjson.dumps(json_result).decode()
         finally:
             self.finish(_session)
             session_maker.remove()
